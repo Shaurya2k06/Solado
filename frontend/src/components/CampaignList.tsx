@@ -51,17 +51,24 @@ export const CampaignList = () => {
     try {
       setLoading(true);
       const campaignAccounts = await (program.account as any).campaign.all();
-      const campaignsData = campaignAccounts.map((account: any) => ({
-        publicKey: account.publicKey,
-        creator: account.account.creator,
-        title: account.account.title,
-        description: account.account.description,
-        goalAmount: account.account.goal_amount ? new BN(account.account.goal_amount) : new BN(0),
-        donatedAmount: account.account.donated_amount ? new BN(account.account.donated_amount) : new BN(0),
-        deadline: account.account.deadline ? new BN(account.account.deadline) : new BN(0),
-        metadataUri: account.account.metadata_uri,
-        isActive: account.account.is_active,
-      }));
+      
+      const campaignsData = campaignAccounts.map((account: any) => {
+        // Handle both snake_case and camelCase field names
+        const goalAmount = account.account.goal_amount || account.account.goalAmount || 0;
+        const donatedAmount = account.account.donated_amount || account.account.donatedAmount || 0;
+        
+        return {
+          publicKey: account.publicKey,
+          creator: account.account.creator,
+          title: account.account.title,
+          description: account.account.description,
+          goalAmount: new BN(goalAmount.toString()),
+          donatedAmount: new BN(donatedAmount.toString()),
+          deadline: account.account.deadline ? new BN(account.account.deadline) : new BN(0),
+          metadataUri: account.account.metadata_uri || account.account.metadataUri || '',
+          isActive: account.account.is_active !== false,
+        };
+      });
       setCampaigns(campaignsData);
     } catch (error) {
       console.error('Error fetching campaigns:', error);
@@ -402,7 +409,34 @@ export const CampaignList = () => {
                     </div>
 
                     {/* Campaign Header */}
-                    <div className="h-48 bg-gradient-to-br from-primary/20 via-accent/20 to-primary/20 relative overflow-hidden">
+                    <div className="h-48 relative overflow-hidden">
+                      {/* Background Image or Gradient */}
+                      {campaign.metadataUri ? (
+                        <>
+                          <img 
+                            src={campaign.metadataUri} 
+                            alt={campaign.title}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // Fallback to gradient if image fails to load
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          <div 
+                            className="absolute inset-0 bg-gradient-to-br from-primary/20 via-accent/20 to-primary/20"
+                            style={{ display: 'none' }}
+                            onLoad={(e) => {
+                              // Show gradient if image fails
+                              const img = (e.target as HTMLElement).parentElement?.querySelector('img');
+                              if (img && !img.complete) {
+                                (e.target as HTMLElement).style.display = 'block';
+                              }
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-primary/20 via-accent/20 to-primary/20" />
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                       <div className="absolute bottom-4 left-4 right-16">
                         <BoxReveal boxColor="#FFFFFF" duration={0.5}>
@@ -533,7 +567,29 @@ export const CampaignList = () => {
             className="bg-background/95 backdrop-blur-xl border border-border rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
           >
             {/* Modal Header */}
-            <div className="relative h-64 bg-gradient-to-br from-primary/30 via-accent/30 to-primary/30 rounded-t-2xl overflow-hidden">
+            <div className="relative h-64 rounded-t-2xl overflow-hidden">
+              {/* Background Image or Gradient */}
+              {selectedCampaign.metadataUri ? (
+                <>
+                  <img 
+                    src={selectedCampaign.metadataUri} 
+                    alt={selectedCampaign.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      // Fallback to gradient if image fails to load
+                      (e.target as HTMLImageElement).style.display = 'none';
+                      const fallback = (e.target as HTMLElement).parentElement?.querySelector('.gradient-fallback') as HTMLElement;
+                      if (fallback) fallback.style.display = 'block';
+                    }}
+                  />
+                  <div 
+                    className="gradient-fallback absolute inset-0 bg-gradient-to-br from-primary/30 via-accent/30 to-primary/30"
+                    style={{ display: 'none' }}
+                  />
+                </>
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-primary/30 via-accent/30 to-primary/30" />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
               <Button
                 variant="ghost"

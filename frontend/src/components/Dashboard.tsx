@@ -1,19 +1,24 @@
 import { useState, useEffect } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { CreateCampaign } from './CreateCampaign';
 import { CampaignList } from './CampaignList';
+import Profile from './Profile';
 import { motion } from 'framer-motion';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { 
   RocketLaunchIcon,
   MagnifyingGlassIcon,
-  PlusCircleIcon 
+  PlusCircleIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
 
 export const Dashboard = () => {
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'create'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'create' | 'my-campaigns' | 'profile'>('campaigns');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [balance, setBalance] = useState<number>(0);
   const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
 
   // Redirect to landing page if wallet disconnects
   useEffect(() => {
@@ -21,6 +26,42 @@ export const Dashboard = () => {
       window.location.reload(); // This will trigger the redirect in App.tsx
     }
   }, [connected]);
+
+  // Fetch wallet balance
+  const fetchBalance = async () => {
+    if (!publicKey) return;
+    
+    try {
+      const apiKey = import.meta.env.VITE_HELIUS_API_KEY;
+      const response = await fetch(`https://api.helius.xyz/v0/addresses/${publicKey.toString()}/balances?api-key=${apiKey}`);
+      const data = await response.json();
+      
+      // Find SOL balance
+      const solBalance = data.tokens.find((token: any) => token.mint === 'So11111111111111111111111111111111111111111112');
+      if (solBalance) {
+        setBalance(solBalance.amount / LAMPORTS_PER_SOL);
+      } else {
+        // Fallback to connection.getBalance if Helius doesn't return SOL
+        const lamports = await connection.getBalance(publicKey);
+        setBalance(lamports / LAMPORTS_PER_SOL);
+      }
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+      // Fallback to connection.getBalance
+      try {
+        const lamports = await connection.getBalance(publicKey);
+        setBalance(lamports / LAMPORTS_PER_SOL);
+      } catch (fallbackError) {
+        console.error('Error with fallback balance fetch:', fallbackError);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (publicKey && connection) {
+      fetchBalance();
+    }
+  }, [publicKey, connection]);
 
   const handleCampaignCreated = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -72,7 +113,7 @@ export const Dashboard = () => {
                 whileTap={{ scale: 0.95 }}
               >
                 <MagnifyingGlassIcon className="h-4 w-4" />
-                <span>Browse </span>
+                <span>Browse</span>
               </motion.button>
               <motion.button
                 onClick={() => setActiveTab('create')}
@@ -86,6 +127,18 @@ export const Dashboard = () => {
                 <PlusCircleIcon className="h-4 w-4" />
                 <span>Create</span>
               </motion.button>
+              <motion.button
+                onClick={() => setActiveTab('profile')}
+                className={`flex items-center space-x-2 px-6 py-3 rounded-full text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'profile'
+                    ? 'bg-blue-500 text-white shadow-lg'
+                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                }`}
+                whileTap={{ scale: 0.95 }}
+              >
+                <UserIcon className="h-4 w-4" />
+                <span>Profile</span>
+              </motion.button>
             </div>
 
             <div className="h-8 w-px bg-white/20" />
@@ -93,8 +146,8 @@ export const Dashboard = () => {
             {/* Wallet Section */}
             <div className="flex items-center space-x-4 px-3">
               {publicKey && (
-                <div className="hidden sm:block text-xs text-white/60 font-mono px-4 py-2 bg-white/5 rounded-full">
-                  {publicKey.toString().slice(0, 4)}...{publicKey.toString().slice(-4)}
+                <div className="hidden sm:block text-xs text-white/90 font-mono px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-full">
+                  {balance.toFixed(4)} SOL
                 </div>
               )}
               <WalletMultiButton className="!bg-red-500/20 !border !border-red-500/30 hover:!bg-red-500/30 !text-red-400 hover:!text-red-300 !font-medium !px-6 !py-3 !rounded-full !text-sm !transition-all !duration-200" />
@@ -159,6 +212,10 @@ export const Dashboard = () => {
                 </div>
                 <CreateCampaign onCampaignCreated={handleCampaignCreated} />
               </div>
+            )}
+
+            {activeTab === 'profile' && (
+              <Profile />
             )}
           </motion.div>
         </div>
