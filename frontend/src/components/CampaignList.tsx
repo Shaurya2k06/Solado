@@ -39,7 +39,7 @@ export const CampaignList = () => {
     if (!program) return;
     
     try {
-      const campaignAccounts = await program.account.campaign.all();
+      const campaignAccounts = await (program.account as any).campaign.all();
       const campaignsData = campaignAccounts.map((account: any) => ({
         publicKey: account.publicKey,
         creator: account.account.creator,

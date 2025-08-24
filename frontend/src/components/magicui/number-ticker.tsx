@@ -1,7 +1,7 @@
 "use client";
 
 import { useInView, useMotionValue, useSpring } from "motion/react";
-import { ComponentPropsWithoutRef, useEffect, useRef } from "react";
+import { useEffect, useRef, type ComponentPropsWithoutRef } from "react";
 
 import { cn } from "@/lib/utils";
 
