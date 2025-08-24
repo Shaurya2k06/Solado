@@ -1,0 +1,561 @@
+import { useState, useEffect } from 'react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useProgramContext } from '../contexts/ProgramContext';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { BN } from '@coral-xyz/anchor';
+import { AnimatedCard } from './ui/animated-card';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { motion } from 'framer-motion';
+import { 
+  UserCircleIcon,
+  WalletIcon,
+  ChartBarIcon,
+  CalendarIcon,
+  FireIcon,
+  TrophyIcon,
+  ShareIcon,
+  EyeIcon,
+  ClockIcon,
+  CurrencyDollarIcon
+} from '@heroicons/react/24/outline';
+
+interface Campaign {
+  publicKey: PublicKey;
+  creator: PublicKey;
+  title: string;
+  description: string;
+  goalAmount: BN;
+  donatedAmount: BN;
+  deadline: BN;
+  metadataUri?: string;
+  isActive: boolean;
+}
+
+const Profile = () => {
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+  const { program } = useProgramContext();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [balance, setBalance] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns'>('overview');
+
+  // Fetch wallet balance
+  const fetchBalance = async () => {
+    if (!publicKey) return;
+    
+    try {
+      const apiKey = import.meta.env.VITE_HELIUS_API_KEY;
+      if (apiKey) {
+        const response = await fetch(`https://api.helius.xyz/v0/addresses/${publicKey.toString()}/balances?api-key=${apiKey}`);
+        const data = await response.json();
+        
+        const solBalance = data.tokens?.find((token: any) => token.mint === 'So11111111111111111111111111111111111111111112');
+        if (solBalance) {
+          setBalance(solBalance.amount / LAMPORTS_PER_SOL);
+          return;
+        }
+      }
+      
+      // Fallback to connection.getBalance
+      const lamports = await connection.getBalance(publicKey);
+      setBalance(lamports / LAMPORTS_PER_SOL);
+    } catch (error) {
+      console.error('Error fetching balance:', error);
+      try {
+        const lamports = await connection.getBalance(publicKey);
+        setBalance(lamports / LAMPORTS_PER_SOL);
+      } catch (fallbackError) {
+        console.error('Error with fallback balance fetch:', fallbackError);
+      }
+    }
+  };
+
+  // Fetch campaigns created by the user
+  const fetchMyCampaigns = async () => {
+    if (!program || !publicKey) return;
+    
+    try {
+      const campaignAccounts = await (program.account as any).campaign.all();
+      const myCampaignsData = campaignAccounts
+        .filter((account: any) => account.account.creator.toString() === publicKey.toString())
+        .map((account: any) => ({
+          publicKey: account.publicKey,
+          creator: account.account.creator,
+          title: account.account.title,
+          description: account.account.description,
+          goalAmount: account.account.goal_amount ? new BN(account.account.goal_amount) : new BN(0),
+          donatedAmount: account.account.donated_amount ? new BN(account.account.donated_amount) : new BN(0),
+          deadline: account.account.deadline ? new BN(account.account.deadline) : new BN(0),
+          metadataUri: account.account.metadata_uri,
+          isActive: account.account.is_active,
+        }));
+      setCampaigns(myCampaignsData);
+    } catch (error) {
+      console.error('Error fetching my campaigns:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (publicKey && program && connected) {
+      fetchBalance();
+      fetchMyCampaigns();
+    }
+  }, [publicKey, program, connected]);
+
+  const formatSOL = (amount: BN) => {
+    return (amount.toNumber() / LAMPORTS_PER_SOL).toFixed(2);
+  };
+
+  const getProgressPercentage = (current: BN, goal: BN) => {
+    if (goal.isZero()) return 0;
+    return Math.min((current.toNumber() / goal.toNumber()) * 100, 100);
+  };
+
+  const isExpired = (deadline: BN) => {
+    const now = Math.floor(Date.now() / 1000);
+    return deadline.toNumber() < now;
+  };
+
+  const getDaysLeft = (deadline: BN) => {
+    const now = Math.floor(Date.now() / 1000);
+    const timeLeft = deadline.toNumber() - now;
+    if (timeLeft <= 0) return 0;
+    return Math.ceil(timeLeft / (24 * 60 * 60));
+  };
+
+  if (!connected || !publicKey) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center py-16">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="space-y-6"
+          >
+            <div className="w-24 h-24 bg-muted/30 rounded-full flex items-center justify-center mx-auto">
+              <UserCircleIcon className="h-12 w-12 text-muted-foreground" />
+            </div>
+            <div>
+              <h2 className="text-3xl font-bold text-foreground mb-2">Connect Your Wallet</h2>
+              <p className="text-muted-foreground text-lg">
+                Connect your wallet to view your profile and manage your campaigns
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-8">
+        <div className="text-center py-16">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-6"></div>
+          <p className="text-muted-foreground text-lg">Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Calculate stats
+  const activeCampaigns = campaigns.filter(c => c.isActive && !isExpired(c.deadline));
+  const totalRaised = campaigns.reduce((sum, c) => sum.add(c.donatedAmount), new BN(0));
+  const successfulCampaigns = campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+
+  return (
+    <div className="space-y-8">
+      {/* Profile Header */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="text-center space-y-6"
+      >
+        <div>
+          <h1 className="text-5xl font-bold text-foreground mb-4">
+            My Profile
+          </h1>
+          <p className="text-muted-foreground text-xl">
+            Track your campaigns and achievements
+          </p>
+        </div>
+      </motion.div>
+
+      {/* Profile Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+      >
+        <AnimatedCard className="p-8">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+            {/* Avatar */}
+            <div className="relative">
+              <div className="w-24 h-24 bg-gradient-to-br from-primary to-accent rounded-2xl flex items-center justify-center shadow-xl">
+                <UserCircleIcon className="h-12 w-12 text-primary-foreground" />
+              </div>
+              <div className="absolute -bottom-2 -right-2 bg-green-500 rounded-full p-2 border-2 border-card">
+                <div className="w-3 h-3 bg-white rounded-full"></div>
+              </div>
+            </div>
+
+            {/* Profile Info */}
+            <div className="flex-1 space-y-4">
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary" className="px-3 py-1">
+                  <WalletIcon className="h-3 w-3 mr-1" />
+                  Connected
+                </Badge>
+              </div>
+              
+              <div className="flex items-center gap-2 text-sm">
+                <code className="bg-muted/50 px-3 py-1 rounded-lg font-mono text-muted-foreground">
+                  {publicKey.toString().slice(0, 8)}...{publicKey.toString().slice(-8)}
+                </code>
+                <Button 
+                  size="sm" 
+                  variant="ghost"
+                  onClick={() => navigator.clipboard.writeText(publicKey.toString())}
+                  className="h-8 w-8 p-0 hover:bg-muted/50"
+                >
+                  <ShareIcon className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <CurrencyDollarIcon className="h-5 w-5 text-green-500" />
+                  <span className="text-2xl font-bold text-green-500">{balance.toFixed(4)}</span>
+                  <span className="text-muted-foreground">SOL</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="h-5 w-5 text-primary" />
+                  <span className="text-sm text-muted-foreground">
+                    Member since {new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </AnimatedCard>
+      </motion.div>
+
+      {/* Stats Grid */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+        className="grid grid-cols-2 lg:grid-cols-4 gap-6"
+      >
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-blue-500/20 rounded-xl">
+              <ChartBarIcon className="h-6 w-6 text-blue-400" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-foreground mb-1">{campaigns.length}</div>
+          <div className="text-sm text-muted-foreground">Total Campaigns</div>
+        </AnimatedCard>
+
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-green-500/20 rounded-xl">
+              <FireIcon className="h-6 w-6 text-green-400" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-foreground mb-1">{activeCampaigns.length}</div>
+          <div className="text-sm text-muted-foreground">Active</div>
+        </AnimatedCard>
+
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-purple-500/20 rounded-xl">
+              <WalletIcon className="h-6 w-6 text-purple-400" />
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-foreground mb-1">{formatSOL(totalRaised)} SOL</div>
+          <div className="text-sm text-muted-foreground">Total Raised</div>
+        </AnimatedCard>
+
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-orange-500/20 rounded-xl">
+              <TrophyIcon className="h-6 w-6 text-orange-400" />
+            </div>
+          </div>
+          <div className="text-3xl font-bold text-foreground mb-1">{successfulCampaigns.length}</div>
+          <div className="text-sm text-muted-foreground">Successful</div>
+        </AnimatedCard>
+      </motion.div>
+
+      {/* Tab Navigation */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.3 }}
+        className="flex justify-center"
+      >
+        <div className="flex space-x-1 bg-muted/20 rounded-xl p-1">
+          <Button
+            variant={activeTab === 'overview' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('overview')}
+            className="rounded-lg"
+          >
+            <ChartBarIcon className="h-4 w-4 mr-2" />
+            Overview
+          </Button>
+          <Button
+            variant={activeTab === 'campaigns' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('campaigns')}
+            className="rounded-lg"
+          >
+            <EyeIcon className="h-4 w-4 mr-2" />
+            My Campaigns ({campaigns.length})
+          </Button>
+        </div>
+      </motion.div>
+
+      {/* Tab Content */}
+      <motion.div
+        key={activeTab}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        {activeTab === 'overview' && (
+          <div className="space-y-8">
+            {/* Achievements */}
+            <AnimatedCard className="p-8">
+              <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
+                <TrophyIcon className="h-6 w-6 text-orange-400" />
+                Achievements
+              </h3>
+              
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className={`p-6 rounded-xl border transition-all ${
+                  campaigns.length > 0 
+                    ? 'bg-green-500/10 border-green-500/30 shadow-lg' 
+                    : 'bg-muted/20 border-border'
+                }`}>
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className={`p-3 rounded-lg ${
+                      campaigns.length > 0 ? 'bg-green-500/20' : 'bg-muted/20'
+                    }`}>
+                      <FireIcon className={`h-6 w-6 ${
+                        campaigns.length > 0 ? 'text-green-400' : 'text-muted-foreground'
+                      }`} />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">First Campaign</div>
+                      <div className="text-sm text-muted-foreground">Create your first campaign</div>
+                    </div>
+                  </div>
+                  {campaigns.length > 0 && (
+                    <Badge variant="secondary" className="w-full justify-center">
+                      Unlocked! 🎉
+                    </Badge>
+                  )}
+                </div>
+
+                <div className={`p-6 rounded-xl border transition-all ${
+                  successfulCampaigns.length > 0 
+                    ? 'bg-blue-500/10 border-blue-500/30 shadow-lg' 
+                    : 'bg-muted/20 border-border'
+                }`}>
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className={`p-3 rounded-lg ${
+                      successfulCampaigns.length > 0 ? 'bg-blue-500/20' : 'bg-muted/20'
+                    }`}>
+                      <TrophyIcon className={`h-6 w-6 ${
+                        successfulCampaigns.length > 0 ? 'text-blue-400' : 'text-muted-foreground'
+                      }`} />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Successful Campaign</div>
+                      <div className="text-sm text-muted-foreground">Reach 100% funding</div>
+                    </div>
+                  </div>
+                  {successfulCampaigns.length > 0 && (
+                    <Badge variant="secondary" className="w-full justify-center">
+                      Unlocked! 🏆
+                    </Badge>
+                  )}
+                </div>
+
+                <div className={`p-6 rounded-xl border transition-all ${
+                  totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL 
+                    ? 'bg-purple-500/10 border-purple-500/30 shadow-lg' 
+                    : 'bg-muted/20 border-border'
+                }`}>
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className={`p-3 rounded-lg ${
+                      totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL ? 'bg-purple-500/20' : 'bg-muted/20'
+                    }`}>
+                      <CurrencyDollarIcon className={`h-6 w-6 ${
+                        totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL ? 'text-purple-400' : 'text-muted-foreground'
+                      }`} />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-foreground">Fundraiser</div>
+                      <div className="text-sm text-muted-foreground">Raise 10+ SOL</div>
+                    </div>
+                  </div>
+                  {totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL && (
+                    <Badge variant="secondary" className="w-full justify-center">
+                      Unlocked! 💰
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </AnimatedCard>
+
+            {/* Recent Activity */}
+            <AnimatedCard className="p-8">
+              <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
+                <ClockIcon className="h-6 w-6 text-primary" />
+                Recent Activity
+              </h3>
+              
+              {campaigns.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-muted-foreground mb-4">
+                    <ChartBarIcon className="w-16 h-16 mx-auto opacity-50" />
+                  </div>
+                  <p className="text-muted-foreground mb-4 text-lg">No recent activity</p>
+                  <Button onClick={() => setActiveTab('campaigns')} className="bg-primary hover:bg-primary/90">
+                    Create Your First Campaign
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {campaigns.slice(0, 5).map((campaign) => (
+                    <div key={campaign.publicKey.toString()} className="flex items-center gap-4 p-4 bg-muted/20 rounded-xl">
+                      <div className="w-3 h-3 bg-green-400 rounded-full flex-shrink-0"></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground truncate">{campaign.title}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {formatSOL(campaign.donatedAmount)} / {formatSOL(campaign.goalAmount)} SOL raised
+                        </div>
+                      </div>
+                      <Badge variant={isExpired(campaign.deadline) ? "destructive" : "default"} className="flex-shrink-0">
+                        {isExpired(campaign.deadline) ? 'Expired' : `${getDaysLeft(campaign.deadline)}d left`}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </AnimatedCard>
+          </div>
+        )}
+
+        {activeTab === 'campaigns' && (
+          <div>
+            {campaigns.length === 0 ? (
+              <AnimatedCard className="p-12 text-center">
+                <div className="text-muted-foreground mb-6">
+                  <ChartBarIcon className="w-20 h-20 mx-auto opacity-50" />
+                </div>
+                <h3 className="text-3xl font-bold text-foreground mb-4">No Campaigns Yet</h3>
+                <p className="text-muted-foreground mb-8 text-lg max-w-2xl mx-auto">
+                  You haven't created any campaigns yet. Start your fundraising journey by creating your first campaign on the blockchain.
+                </p>
+                <Button size="lg" className="bg-primary hover:bg-primary/90">
+                  Create Your First Campaign
+                </Button>
+              </AnimatedCard>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {campaigns.map((campaign) => {
+                  const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
+                  const expired = isExpired(campaign.deadline);
+                  const daysLeft = getDaysLeft(campaign.deadline);
+                  const campaignKey = campaign.publicKey.toString();
+                  
+                  return (
+                    <AnimatedCard key={campaignKey} className="group relative overflow-hidden">
+                      {/* Status Badge */}
+                      <div className="absolute top-4 right-4 z-10">
+                        <Badge variant={expired ? "destructive" : "default"} className="text-xs">
+                          {expired ? 'Expired' : campaign.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </div>
+
+                      {/* Campaign Header */}
+                      <div className="h-48 bg-gradient-to-br from-primary/20 via-accent/20 to-primary/20 relative overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
+                        <div className="absolute bottom-4 left-4 right-16">
+                          <h3 className="text-xl font-bold text-white mb-1 line-clamp-2">{campaign.title}</h3>
+                        </div>
+                      </div>
+
+                      {/* Content */}
+                      <div className="p-6 space-y-4">
+                        <p className="text-muted-foreground text-sm line-clamp-3">{campaign.description}</p>
+
+                        {/* Progress */}
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-end">
+                            <div>
+                              <div className="text-xl font-bold text-foreground">
+                                {formatSOL(campaign.donatedAmount)} SOL
+                              </div>
+                              <div className="text-sm text-muted-foreground">
+                                of {formatSOL(campaign.goalAmount)} SOL
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-semibold text-primary">
+                                {progress.toFixed(0)}%
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {expired ? 'Expired' : `${daysLeft} days left`}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="w-full bg-muted/30 rounded-full h-2">
+                            <div 
+                              className="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all duration-500"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 pt-2">
+                          <Button variant="outline" size="sm" className="flex-1">
+                            View Details
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={() => navigator.clipboard.writeText(`${window.location.origin}/campaign/${campaignKey}`)}
+                          >
+                            <ShareIcon className="h-4 w-4 mr-1" />
+                            Share
+                          </Button>
+                        </div>
+                      </div>
+                    </AnimatedCard>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+};
+
+export default Profile;
