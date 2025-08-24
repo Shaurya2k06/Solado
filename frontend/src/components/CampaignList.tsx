@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { AnimatedCard } from './ui/animated-card';
 import { Badge } from './ui/badge';
@@ -81,7 +81,7 @@ export const CampaignList = () => {
         .accounts({
           campaign: campaignKey,
           donor: (program.provider as any).publicKey,
-          systemProgram: new PublicKey('11111111111111111111111111111112'),
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
 
