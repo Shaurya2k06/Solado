@@ -126,18 +126,11 @@ export const LandingPage = () => {
           {/* Main Headline */}
           <div className="space-y-6 mb-12 animate-fade-in-up animate-delay-200">
 
+
             
             <div className="flex justify-center">
               <BoxReveal boxColor={"#2563eb"} duration={0.3} width="fit-content">
-                <h2 className="text-5xl md:text-6xl font-bold tracking-tight">
-                  <span className="gradient-text-animated">Fund Ideas.</span>
-                </h2>
-              </BoxReveal>
-            </div>
-            
-            <div className="flex justify-center">
-              <BoxReveal boxColor={"#2563eb"} duration={0.3} width="fit-content">
-                <h2 className="text-5xl md:text-6xl font-bold tracking-tight">
+                <h2 className="text-5xl mt-10 md:text-6xl font-bold tracking-tight">
                   <span className="text-foreground">Change Lives.</span>
                 </h2>
               </BoxReveal>
@@ -145,7 +138,7 @@ export const LandingPage = () => {
             
             <div className="flex justify-center">
               <BoxReveal boxColor={"#2563eb"} duration={0.3} width="fit-content">
-                <p className="text-xl text-muted-foreground max-w-3xl leading-relaxed text-center">
+                <p className="text-xl mt-2 text-muted-foreground max-w-3xl leading-relaxed text-center">
                   The world's first decentralized crowdfunding platform built on Solana.
                   <br />
                   Lightning-fast transactions, minimal fees, maximum transparency.
@@ -218,7 +211,7 @@ export const LandingPage = () => {
 
       {/* How It Works Timeline */}
       <section className="relative py-16 px-4 sm:px-6 lg:px-8 bg-card/20">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           <div className="text-center mb-12" data-aos="fade-up">
             <div className="flex justify-center mb-4">
               <BoxReveal boxColor={"#2563eb"} duration={0.3} width="fit-content">
@@ -236,18 +229,25 @@ export const LandingPage = () => {
             </div>
           </div>
 
-          <div className="relative">
-            {/* Timeline Line - Hidden on mobile */}
-            <div className="absolute left-1/2 transform -translate-x-1/2 w-1 h-full bg-gradient-to-b from-primary via-accent to-primary/20 rounded-full hidden md:block"></div>
+          <div className="relative px-12 md:px-16">
+            {/* Animated Timeline Beam - Hidden on mobile */}
+            <div className="absolute left-1/2 transform -translate-x-1/2 w-1 h-full rounded-full hidden md:block overflow-hidden">
+              {/* Background beam */}
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/30 via-accent/30 to-primary/10 rounded-full"></div>
+              {/* Animated flowing beam */}
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary to-transparent rounded-full animate-pulse"></div>
+              {/* Moving light effect */}
+              <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-primary to-transparent rounded-full opacity-80 timeline-flow"></div>
+            </div>
             
             <div className="space-y-6 md:space-y-8">
               {/* Step 1 */}
               <div className="flex items-center justify-center" data-aos="fade-right" data-aos-delay="100">
-                <AnimatedCard className="max-w-lg w-full relative">
-                  <div className="absolute top-3 left-3 md:-left-5 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-primary rounded-full flex items-center justify-center shadow-lg z-10">
+                <AnimatedCard className="max-w-xl w-full relative">
+                  <div className="absolute top-3 left-3 md:-left-6 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-primary rounded-full flex items-center justify-center shadow-lg z-10">
                     <span className="text-primary-foreground font-bold text-sm">1</span>
                   </div>
-                  <div className="p-6 pl-12 pt-12 md:pt-6 md:pl-12">
+                  <div className="p-6 pl-12 pt-12 md:pt-6 md:pl-14">
                     <h4 className="text-xl font-semibold text-foreground mb-3">Connect Your Wallet</h4>
                     <p className="text-muted-foreground text-base leading-relaxed">
                       Connect your Solana wallet to get started. We support Phantom, Solflare, and other popular wallets.
@@ -258,11 +258,11 @@ export const LandingPage = () => {
 
               {/* Step 2 */}
               <div className="flex items-center justify-center" data-aos="fade-left" data-aos-delay="200">
-                <AnimatedCard className="max-w-lg w-full relative">
-                  <div className="absolute top-3 right-3 md:-right-5 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-accent rounded-full flex items-center justify-center shadow-lg z-10">
+                <AnimatedCard className="max-w-xl w-full relative">
+                  <div className="absolute top-3 right-3 md:-right-6 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-accent rounded-full flex items-center justify-center shadow-lg z-10">
                     <span className="text-accent-foreground font-bold text-sm">2</span>
                   </div>
-                  <div className="p-6 pr-12 pt-12 md:pt-6 md:pr-12 text-left md:text-right">
+                  <div className="p-6 pr-12 pt-12 md:pt-6 md:pr-14 text-left md:text-right">
                     <h4 className="text-xl font-semibold text-foreground mb-3">Create Your Campaign</h4>
                     <p className="text-muted-foreground text-base leading-relaxed">
                       Fill out your campaign details, set your funding goal, and upload compelling content to attract backers.
@@ -273,11 +273,11 @@ export const LandingPage = () => {
 
               {/* Step 3 */}
               <div className="flex items-center justify-center" data-aos="fade-right" data-aos-delay="300">
-                <AnimatedCard className="max-w-lg w-full relative">
-                  <div className="absolute top-3 left-3 md:-left-5 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-primary rounded-full flex items-center justify-center shadow-lg z-10">
+                <AnimatedCard className="max-w-xl w-full relative">
+                  <div className="absolute top-3 left-3 md:-left-6 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-primary rounded-full flex items-center justify-center shadow-lg z-10">
                     <span className="text-primary-foreground font-bold text-sm">3</span>
                   </div>
-                  <div className="p-6 pl-12 pt-12 md:pt-6 md:pl-12">
+                  <div className="p-6 pl-12 pt-12 md:pt-6 md:pl-14">
                     <h4 className="text-xl font-semibold text-foreground mb-3">Share & Promote</h4>
                     <p className="text-muted-foreground text-base leading-relaxed">
                       Share your campaign with your network and watch as supporters contribute to your cause with instant SOL transactions.
@@ -288,11 +288,11 @@ export const LandingPage = () => {
 
               {/* Step 4 */}
               <div className="flex items-center justify-center" data-aos="fade-left" data-aos-delay="400">
-                <AnimatedCard className="max-w-lg w-full relative">
-                  <div className="absolute top-3 right-3 md:-right-5 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-accent rounded-full flex items-center justify-center shadow-lg z-10">
+                <AnimatedCard className="max-w-xl w-full relative">
+                  <div className="absolute top-3 right-3 md:-right-6 md:top-1/2 md:transform md:-translate-y-1/2 w-10 h-10 bg-accent rounded-full flex items-center justify-center shadow-lg z-10">
                     <span className="text-accent-foreground font-bold text-sm">4</span>
                   </div>
-                  <div className="p-6 pr-12 pt-12 md:pt-6 md:pr-12 text-left md:text-right">
+                  <div className="p-6 pr-12 pt-12 md:pt-6 md:pr-14 text-left md:text-right">
                     <h4 className="text-xl font-semibold text-foreground mb-3">Receive Funding</h4>
                     <p className="text-muted-foreground text-base leading-relaxed">
                       Once your campaign reaches its goal, withdraw funds instantly to your wallet. All transactions are transparent and secure.
