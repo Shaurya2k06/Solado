@@ -1,18 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { AnimatedCard } from './ui/animated-card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { BoxReveal } from './magicui/box-reveal';
+import { motion } from 'framer-motion';
 import { 
-  CalendarIcon,
   UserIcon,
   ChartBarIcon,
   CurrencyDollarIcon,
   RocketLaunchIcon,
-  ClockIcon
+  ClockIcon,
+  FireIcon,
+  HeartIcon,
+  ShareIcon,
+  XMarkIcon,
+  CalendarIcon,
+  CheckCircleIcon
 } from '@heroicons/react/24/outline';
 
 interface Campaign {
@@ -28,17 +35,21 @@ interface Campaign {
 }
 
 export const CampaignList = () => {
-  const { connected } = useWallet();
+  const { connected, publicKey } = useWallet();
   const { program } = useProgramContext();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [donationAmounts, setDonationAmounts] = useState<{ [key: string]: string }>({});
   const [donatingTo, setDonatingTo] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'active' | 'successful' | 'ending-soon'>('all');
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
+  const [modalDonationAmount, setModalDonationAmount] = useState('');
 
   const fetchCampaigns = async () => {
     if (!program) return;
     
     try {
+      setLoading(true);
       const campaignAccounts = await (program.account as any).campaign.all();
       const campaignsData = campaignAccounts.map((account: any) => ({
         publicKey: account.publicKey,
@@ -63,51 +74,116 @@ export const CampaignList = () => {
     fetchCampaigns();
   }, [program]);
 
-  const handleDonate = async (campaignKey: PublicKey) => {
-    if (!program || !connected) return;
-    
-    const amount = donationAmounts[campaignKey.toString()];
+  const handleDonate = async (campaignKey: string) => {
+    if (!program || !publicKey) return;
+
+    const amount = donationAmounts[campaignKey];
     if (!amount || parseFloat(amount) <= 0) {
       alert('Please enter a valid donation amount');
       return;
     }
 
-    setDonatingTo(campaignKey.toString());
     try {
-      const donationAmountLamports = new BN(parseFloat(amount) * 1e9);
+      setDonatingTo(campaignKey);
+      const amountLamports = parseFloat(amount) * LAMPORTS_PER_SOL;
 
-      const tx = await (program.methods as any)
-        .donate(donationAmountLamports)
+      const [donationRecordPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('donation'),
+          new PublicKey(campaignKey).toBuffer(),
+          publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+
+      await program.methods
+        .donate(new BN(amountLamports))
         .accounts({
-          campaign: campaignKey,
-          donor: (program.provider as any).publicKey,
+          campaign: new PublicKey(campaignKey),
+          donor: publicKey,
+          donationRecord: donationRecordPda,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
 
-      console.log('Donation successful:', tx);
-      
-      // Reset amount and refresh campaigns
-      setDonationAmounts(prev => ({
-        ...prev,
-        [campaignKey.toString()]: ''
-      }));
-      
+      // Clear donation amount and refresh campaigns
+      setDonationAmounts(prev => ({ ...prev, [campaignKey]: '' }));
       await fetchCampaigns();
+      alert('Donation successful!');
     } catch (error) {
-      console.error('Error donating:', error);
-      alert('Failed to donate. Please try again.');
+      console.error('Donation failed:', error);
+      alert('Donation failed. Please try again.');
     } finally {
       setDonatingTo(null);
     }
   };
 
-  const formatSOL = (lamports: BN) => {
-    return (lamports.toNumber() / 1e9).toFixed(3);
+  const handleModalDonate = async () => {
+    if (!selectedCampaign || !program || !publicKey) return;
+
+    const amount = modalDonationAmount;
+    if (!amount || parseFloat(amount) <= 0) {
+      alert('Please enter a valid donation amount');
+      return;
+    }
+
+    try {
+      setDonatingTo(selectedCampaign.publicKey.toString());
+      const amountLamports = parseFloat(amount) * LAMPORTS_PER_SOL;
+
+      const [donationRecordPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('donation'),
+          selectedCampaign.publicKey.toBuffer(),
+          publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+
+      await program.methods
+        .donate(new BN(amountLamports))
+        .accounts({
+          campaign: selectedCampaign.publicKey,
+          donor: publicKey,
+          donationRecord: donationRecordPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Clear donation amount and refresh campaigns
+      setModalDonationAmount('');
+      await fetchCampaigns();
+      alert('Donation successful!');
+      setSelectedCampaign(null); // Close modal
+    } catch (error) {
+      console.error('Donation failed:', error);
+      alert('Donation failed. Please try again.');
+    } finally {
+      setDonatingTo(null);
+    }
   };
 
-  const formatDate = (timestamp: BN) => {
-    return new Date(timestamp.toNumber() * 1000).toLocaleDateString();
+  const handleShare = (campaign: Campaign) => {
+    const url = `${window.location.origin}/campaign/${campaign.publicKey.toString()}`;
+    const text = `Check out this amazing campaign: "${campaign.title}"`;
+    
+    if (navigator.share) {
+      navigator.share({
+        title: campaign.title,
+        text: text,
+        url: url,
+      }).catch(console.error);
+    } else {
+      navigator.clipboard.writeText(url).then(() => {
+        alert('Campaign link copied to clipboard!');
+      }).catch(() => {
+        alert('Failed to copy link');
+      });
+    }
+  };
+
+  const formatSOL = (amount: BN) => {
+    return (amount.toNumber() / LAMPORTS_PER_SOL).toFixed(2);
   };
 
   const getProgressPercentage = (current: BN, goal: BN) => {
@@ -116,223 +192,528 @@ export const CampaignList = () => {
   };
 
   const isExpired = (deadline: BN) => {
-    return new Date(deadline.toNumber() * 1000) < new Date();
+    const now = Math.floor(Date.now() / 1000);
+    return deadline.toNumber() < now;
   };
 
-  const getTimeRemaining = (deadline: BN) => {
-    const now = new Date().getTime();
-    const deadlineTime = deadline.toNumber() * 1000;
-    const diff = deadlineTime - now;
-    
-    if (diff <= 0) return 'Expired';
-    
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    
-    if (days > 0) return `${days}d ${hours}h remaining`;
-    return `${hours}h remaining`;
+  const getDaysLeft = (deadline: BN) => {
+    const now = Math.floor(Date.now() / 1000);
+    const timeLeft = deadline.toNumber() - now;
+    if (timeLeft <= 0) return 0;
+    return Math.ceil(timeLeft / (24 * 60 * 60));
   };
 
-  if (loading) {
+  const getFilteredCampaigns = () => {
+    switch (filter) {
+      case 'active':
+        return campaigns.filter(c => c.isActive && !isExpired(c.deadline));
+      case 'successful':
+        return campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+      case 'ending-soon':
+        return campaigns.filter(c => {
+          const daysLeft = getDaysLeft(c.deadline);
+          return c.isActive && daysLeft <= 7 && daysLeft > 0;
+        });
+      default:
+        return campaigns;
+    }
+  };
+
+  const filteredCampaigns = getFilteredCampaigns();
+
+  if (!connected) {
     return (
-      <div className="max-w-6xl mx-auto p-6">
-        <div className="text-center py-12">
-          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading campaigns...</p>
+      <div className="space-y-8">
+        <div className="text-center py-16">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="space-y-6"
+          >
+            <div className="w-24 h-24 bg-muted/30 rounded-full flex items-center justify-center mx-auto">
+              <RocketLaunchIcon className="h-12 w-12 text-muted-foreground" />
+            </div>
+            <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+              <h2 className="text-3xl font-bold text-foreground mb-2">Connect Your Wallet</h2>
+            </BoxReveal>
+            <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+              <p className="text-muted-foreground text-lg">
+                Connect your wallet to explore and support amazing campaigns
+              </p>
+            </BoxReveal>
+          </motion.div>
         </div>
       </div>
     );
   }
 
-  if (campaigns.length === 0) {
+  if (loading) {
     return (
-      <div className="max-w-6xl mx-auto p-6">
-        <AnimatedCard className="text-center py-16">
-          <div className="space-y-6">
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto">
-              <RocketLaunchIcon className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-xl font-semibold text-foreground">No campaigns yet</h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Be the first to create a campaign and start raising funds for your cause.
-              </p>
-            </div>
-          </div>
-        </AnimatedCard>
+      <div className="space-y-8">
+        <div className="text-center py-16">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-6"></div>
+          <p className="text-muted-foreground text-lg">Loading campaigns...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8">
-      {/* Header */}
-      <div className="space-y-4">
-        <div className="flex items-center space-x-3">
-          <div className="p-2 rounded-lg bg-primary/10">
-            <ChartBarIcon className="h-6 w-6 text-primary" />
+    <div className="space-y-8">
+      {/* Stats Overview */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-blue-500/20 rounded-xl">
+              <ChartBarIcon className="h-6 w-6 text-blue-400" />
+            </div>
           </div>
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Active Campaigns</h1>
-            <p className="text-muted-foreground">Support innovative projects and causes</p>
+          <BoxReveal boxColor="#3B82F6" duration={0.5}>
+            <div className="text-3xl font-bold text-foreground mb-1">{campaigns.length}</div>
+          </BoxReveal>
+          <div className="text-sm text-muted-foreground">Total Campaigns</div>
+        </AnimatedCard>
+
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-green-500/20 rounded-xl">
+              <FireIcon className="h-6 w-6 text-green-400" />
+            </div>
           </div>
+          <BoxReveal boxColor="#10B981" duration={0.5}>
+            <div className="text-3xl font-bold text-foreground mb-1">
+              {campaigns.filter(c => c.isActive && !isExpired(c.deadline)).length}
+            </div>
+          </BoxReveal>
+          <div className="text-sm text-muted-foreground">Active</div>
+        </AnimatedCard>
+
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-purple-500/20 rounded-xl">
+              <CurrencyDollarIcon className="h-6 w-6 text-purple-400" />
+            </div>
+          </div>
+          <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+            <div className="text-2xl font-bold text-foreground mb-1">
+              {formatSOL(campaigns.reduce((sum, c) => sum.add(c.donatedAmount), new BN(0)))} SOL
+            </div>
+          </BoxReveal>
+          <div className="text-sm text-muted-foreground">Total Raised</div>
+        </AnimatedCard>
+
+        <AnimatedCard className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-3">
+            <div className="p-2 bg-orange-500/20 rounded-xl">
+              <RocketLaunchIcon className="h-6 w-6 text-orange-400" />
+            </div>
+          </div>
+          <BoxReveal boxColor="#F97316" duration={0.5}>
+            <div className="text-3xl font-bold text-foreground mb-1">
+              {campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100).length}
+            </div>
+          </BoxReveal>
+          <div className="text-sm text-muted-foreground">Successful</div>
+        </AnimatedCard>
+      </motion.div>
+
+      {/* Filter Tabs */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+        className="flex justify-center"
+      >
+        <div className="flex space-x-1 bg-muted/20 rounded-xl p-1">
+          {[
+            { key: 'all', label: 'All Campaigns', icon: ChartBarIcon },
+            { key: 'active', label: 'Active', icon: FireIcon },
+            { key: 'successful', label: 'Successful', icon: RocketLaunchIcon },
+            { key: 'ending-soon', label: 'Ending Soon', icon: ClockIcon },
+          ].map(({ key, label, icon: Icon }) => (
+            <Button
+              key={key}
+              variant={filter === key ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setFilter(key as any)}
+              className="rounded-lg"
+            >
+              <Icon className="h-4 w-4 mr-2" />
+              {label}
+            </Button>
+          ))}
         </div>
-        
-        <div className="flex items-center space-x-6 text-sm text-muted-foreground">
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 rounded-full bg-primary"></div>
-            <span>{campaigns.filter(c => c.isActive && !isExpired(c.deadline)).length} Active</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-2 h-2 rounded-full bg-destructive"></div>
-            <span>{campaigns.filter(c => isExpired(c.deadline)).length} Expired</span>
-          </div>
-        </div>
-      </div>
+      </motion.div>
 
       {/* Campaigns Grid */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {campaigns.map((campaign) => {
-          const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
-          const expired = isExpired(campaign.deadline);
-          const campaignKey = campaign.publicKey.toString();
-          
-          return (
-            <AnimatedCard key={campaignKey} className="group relative overflow-hidden">
-              {/* Status Badge */}
-              <div className="absolute top-4 right-4 z-10">
-                <Badge variant={expired ? "destructive" : "default"} className="text-xs">
-                  {expired ? 'Expired' : 'Active'}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+      >
+        {filteredCampaigns.length === 0 ? (
+          <AnimatedCard className="p-12 text-center">
+            <div className="text-muted-foreground mb-6">
+              <ChartBarIcon className="w-20 h-20 mx-auto opacity-50" />
+            </div>
+            <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+              <h3 className="text-3xl font-bold text-foreground mb-4">No Campaigns Found</h3>
+            </BoxReveal>
+            <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+              <p className="text-muted-foreground mb-8 text-lg">
+                {filter === 'all' 
+                  ? 'No campaigns have been created yet. Be the first to start a campaign!'
+                  : `No ${filter.replace('-', ' ')} campaigns found. Try a different filter.`
+                }
+              </p>
+            </BoxReveal>
+          </AnimatedCard>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredCampaigns.map((campaign, index) => {
+              const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
+              const expired = isExpired(campaign.deadline);
+              const daysLeft = getDaysLeft(campaign.deadline);
+              const campaignKey = campaign.publicKey.toString();
+              const isGoalReached = progress >= 100;
+              
+              return (
+                <motion.div
+                  key={campaignKey}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: index * 0.1 }}
+                >
+                  <AnimatedCard className="group relative overflow-hidden h-full">
+                    {/* Status Badge */}
+                    <div className="absolute top-4 right-4 z-10">
+                      <Badge 
+                        variant={expired ? "destructive" : isGoalReached ? "secondary" : "default"} 
+                        className="text-xs font-medium"
+                      >
+                        {expired ? 'Expired' : isGoalReached ? 'Successful' : campaign.isActive ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+
+                    {/* Campaign Header */}
+                    <div className="h-48 bg-gradient-to-br from-primary/20 via-accent/20 to-primary/20 relative overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+                      <div className="absolute bottom-4 left-4 right-16">
+                        <BoxReveal boxColor="#FFFFFF" duration={0.5}>
+                          <h3 className="text-xl font-bold text-white mb-1 line-clamp-2">{campaign.title}</h3>
+                        </BoxReveal>
+                        <div className="flex items-center gap-2 text-white/80 text-sm">
+                          <UserIcon className="h-4 w-4" />
+                          <span className="font-mono">
+                            {campaign.creator.toString().slice(0, 4)}...{campaign.creator.toString().slice(-4)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-6 space-y-4 flex flex-col flex-1">
+                      <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                        <p className="text-muted-foreground text-sm line-clamp-3 flex-1">{campaign.description}</p>
+                      </BoxReveal>
+
+                      {/* Progress Section */}
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-end">
+                          <div>
+                            <BoxReveal boxColor="#10B981" duration={0.5}>
+                              <div className="text-xl font-bold text-foreground">
+                                {formatSOL(campaign.donatedAmount)} SOL
+                              </div>
+                            </BoxReveal>
+                            <div className="text-sm text-muted-foreground">
+                              of {formatSOL(campaign.goalAmount)} SOL
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <BoxReveal boxColor="#3B82F6" duration={0.5}>
+                              <div className="text-lg font-semibold text-primary">
+                                {progress.toFixed(0)}%
+                              </div>
+                            </BoxReveal>
+                            <div className="text-xs text-muted-foreground flex items-center gap-1">
+                              <ClockIcon className="h-3 w-3" />
+                              {expired ? 'Expired' : `${daysLeft} days left`}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-muted/30 rounded-full h-3">
+                          <motion.div 
+                            className="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all duration-1000 ease-out"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress}%` }}
+                            transition={{ duration: 1, delay: index * 0.1 }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Donation Section */}
+                      {!expired && campaign.isActive && !isGoalReached && (
+                        <div className="space-y-3 pt-2">
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              placeholder="Amount (SOL)"
+                              value={donationAmounts[campaignKey] || ''}
+                              onChange={(e) => setDonationAmounts(prev => ({
+                                ...prev,
+                                [campaignKey]: e.target.value
+                              }))}
+                              className="flex-1 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                              step="0.01"
+                              min="0"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => handleDonate(campaignKey)}
+                              disabled={donatingTo === campaignKey || !donationAmounts[campaignKey]}
+                              className="bg-primary hover:bg-primary/90 min-w-[80px]"
+                            >
+                              {donatingTo === campaignKey ? (
+                                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                              ) : (
+                                <>
+                                  <HeartIcon className="h-4 w-4 mr-1" />
+                                  Donate
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 pt-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="flex-1"
+                          onClick={() => setSelectedCampaign(campaign)}
+                        >
+                          View Details
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => handleShare(campaign)}
+                          className="px-3"
+                        >
+                          <ShareIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </AnimatedCard>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Campaign Details Modal */}
+      {selectedCampaign && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-background/95 backdrop-blur-xl border border-border rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+          >
+            {/* Modal Header */}
+            <div className="relative h-64 bg-gradient-to-br from-primary/30 via-accent/30 to-primary/30 rounded-t-2xl overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedCampaign(null)}
+                className="absolute top-4 right-4 z-10 bg-black/20 hover:bg-black/40 text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </Button>
+              
+              <div className="absolute bottom-6 left-6 right-6">
+                <BoxReveal boxColor="#FFFFFF" duration={0.5}>
+                  <h2 className="text-3xl font-bold text-white mb-2">{selectedCampaign.title}</h2>
+                </BoxReveal>
+                <div className="flex items-center gap-3 text-white/80">
+                  <UserIcon className="h-5 w-5" />
+                  <span className="font-mono text-sm">
+                    {selectedCampaign.creator.toString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-8 space-y-6">
+              {/* Status and Stats */}
+              <div className="flex items-center justify-between">
+                <Badge 
+                  variant={isExpired(selectedCampaign.deadline) ? "destructive" : 
+                          getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount) >= 100 ? "secondary" : "default"} 
+                  className="text-sm px-3 py-1"
+                >
+                  {isExpired(selectedCampaign.deadline) ? 'Expired' : 
+                   getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount) >= 100 ? 'Successful' : 
+                   selectedCampaign.isActive ? 'Active' : 'Inactive'}
                 </Badge>
+                
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <CalendarIcon className="h-4 w-4" />
+                  <span className="text-sm">
+                    {isExpired(selectedCampaign.deadline) ? 'Expired' : `${getDaysLeft(selectedCampaign.deadline)} days left`}
+                  </span>
+                </div>
               </div>
 
-              {/* Header Section */}
-              <div className="p-6 pb-4">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold line-clamp-2 pr-16">
-                    {campaign.title}
-                  </h3>
-                  
-                  <p className="text-sm line-clamp-3 leading-relaxed text-muted-foreground">
-                    {campaign.description}
-                  </p>
+              {/* Description */}
+              <div>
+                <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                  <h3 className="text-lg font-semibold text-foreground mb-3">About This Campaign</h3>
+                </BoxReveal>
+                <p className="text-muted-foreground leading-relaxed">{selectedCampaign.description}</p>
+              </div>
 
-                  {/* Creator Info */}
-                  <div className="flex items-center space-x-2 text-xs text-muted-foreground">
-                    <UserIcon className="h-4 w-4" />
-                    <span className="font-mono">
-                      {campaign.creator.toString().slice(0, 8)}...{campaign.creator.toString().slice(-4)}
+              {/* Progress Stats */}
+              <div className="grid grid-cols-3 gap-4">
+                <AnimatedCard className="p-4 text-center">
+                  <BoxReveal boxColor="#10B981" duration={0.5}>
+                    <div className="text-2xl font-bold text-foreground mb-1">
+                      {formatSOL(selectedCampaign.donatedAmount)}
+                    </div>
+                  </BoxReveal>
+                  <div className="text-sm text-muted-foreground">SOL Raised</div>
+                </AnimatedCard>
+                
+                <AnimatedCard className="p-4 text-center">
+                  <BoxReveal boxColor="#3B82F6" duration={0.5}>
+                    <div className="text-2xl font-bold text-foreground mb-1">
+                      {getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount).toFixed(0)}%
+                    </div>
+                  </BoxReveal>
+                  <div className="text-sm text-muted-foreground">Complete</div>
+                </AnimatedCard>
+                
+                <AnimatedCard className="p-4 text-center">
+                  <BoxReveal boxColor="#F97316" duration={0.5}>
+                    <div className="text-2xl font-bold text-foreground mb-1">
+                      {formatSOL(selectedCampaign.goalAmount)}
+                    </div>
+                  </BoxReveal>
+                  <div className="text-sm text-muted-foreground">Goal</div>
+                </AnimatedCard>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-muted-foreground">
+                  <span>Progress</span>
+                  <span>{getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount).toFixed(1)}%</span>
+                </div>
+                <div className="w-full bg-muted/30 rounded-full h-4">
+                  <motion.div 
+                    className="h-full bg-gradient-to-r from-primary to-accent rounded-full"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount)}%` }}
+                    transition={{ duration: 1 }}
+                  />
+                </div>
+              </div>
+
+              {/* Donation Section */}
+              {!isExpired(selectedCampaign.deadline) && selectedCampaign.isActive && 
+               getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount) < 100 && (
+                <AnimatedCard className="p-6 bg-primary/5 border-primary/20">
+                  <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                    <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                      <HeartIcon className="h-5 w-5 text-primary" />
+                      Support This Campaign
+                    </h3>
+                  </BoxReveal>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-2">
+                        Donation Amount (SOL)
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Enter amount"
+                        value={modalDonationAmount}
+                        onChange={(e) => setModalDonationAmount(e.target.value)}
+                        className="w-full px-4 py-3 bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary text-lg"
+                        step="0.01"
+                        min="0"
+                      />
+                    </div>
+                    <Button
+                      onClick={handleModalDonate}
+                      disabled={donatingTo === selectedCampaign.publicKey.toString() || !modalDonationAmount}
+                      className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 text-lg"
+                    >
+                      {donatingTo === selectedCampaign.publicKey.toString() ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                          Processing Donation...
+                        </div>
+                      ) : (
+                        <>
+                          <HeartIcon className="h-5 w-5 mr-2" />
+                          Donate {modalDonationAmount ? `${modalDonationAmount} SOL` : 'Now'}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </AnimatedCard>
+              )}
+
+              {/* Campaign Completed */}
+              {(isExpired(selectedCampaign.deadline) || getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount) >= 100) && (
+                <AnimatedCard className="p-6 bg-green-500/10 border-green-500/20">
+                  <div className="flex items-center justify-center gap-3 text-green-400">
+                    <CheckCircleIcon className="h-6 w-6" />
+                    <span className="text-lg font-semibold">
+                      {getProgressPercentage(selectedCampaign.donatedAmount, selectedCampaign.goalAmount) >= 100 ? 
+                       'Campaign Successfully Funded!' : 'Campaign Has Ended'}
                     </span>
                   </div>
-                </div>
+                </AnimatedCard>
+              )}
+
+              {/* Share Section */}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => handleShare(selectedCampaign)}
+                  className="flex-1"
+                >
+                  <ShareIcon className="h-4 w-4 mr-2" />
+                  Share Campaign
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedCampaign(null)}
+                  className="px-6"
+                >
+                  Close
+                </Button>
               </div>
-
-              {/* Content Section */}
-              <div className="p-6 pt-0 space-y-6">{/* Progress Section */}
-                <div className="space-y-3">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <div className="text-2xl font-bold text-foreground">
-                        {formatSOL(campaign.donatedAmount)} SOL
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        of {formatSOL(campaign.goalAmount)} SOL
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-semibold text-primary">
-                        {progress.toFixed(0)}%
-                      </div>
-                      <div className="text-xs text-muted-foreground">funded</div>
-                    </div>
-                  </div>
-                  
-                  <div className="w-full bg-muted/50 rounded-full h-2 overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-500 ease-out"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Deadline */}
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center space-x-2 text-muted-foreground">
-                    <CalendarIcon className="h-4 w-4" />
-                    <span>{formatDate(campaign.deadline)}</span>
-                  </div>
-                  <div className={`flex items-center space-x-1 text-xs font-medium ${
-                    expired ? 'text-destructive' : 'text-accent'
-                  }`}>
-                    <ClockIcon className="h-3 w-3" />
-                    <span>{getTimeRemaining(campaign.deadline)}</span>
-                  </div>
-                </div>
-
-                {/* Donation Section */}
-                {!expired && connected && (
-                  <div className="space-y-3 pt-2 border-t border-border">
-                    <div className="flex space-x-2">
-                      <div className="flex-1">
-                        <input
-                          type="number"
-                          placeholder="Amount in SOL"
-                          min="0.001"
-                          step="0.001"
-                          value={donationAmounts[campaignKey] || ''}
-                          onChange={(e) => setDonationAmounts(prev => ({
-                            ...prev,
-                            [campaignKey]: e.target.value
-                          }))}
-                          className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-                        />
-                      </div>
-                      <Button
-                        onClick={() => handleDonate(campaign.publicKey)}
-                        disabled={donatingTo === campaignKey}
-                        size="sm"
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 hover-lift"
-                      >
-                        {donatingTo === campaignKey ? (
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin"></div>
-                          </div>
-                        ) : (
-                          <CurrencyDollarIcon className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    
-                    {/* Quick amount buttons */}
-                    <div className="flex space-x-2">
-                      {[0.1, 0.5, 1.0].map((amount) => (
-                        <Button
-                          key={amount}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setDonationAmounts(prev => ({
-                            ...prev,
-                            [campaignKey]: amount.toString()
-                          }))}
-                          className="text-xs px-3 py-1 h-auto border-border hover:bg-muted hover:border-primary/50 transition-colors"
-                        >
-                          {amount} SOL
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {!connected && (
-                  <div className="text-center text-sm text-muted-foreground py-4 border-t border-border">
-                    Connect your wallet to donate
-                  </div>
-                )}
-              </div>
-            </AnimatedCard>
-          );
-        })}
-      </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
