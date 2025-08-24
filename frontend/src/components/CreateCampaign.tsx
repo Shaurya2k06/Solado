@@ -40,12 +40,20 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
 
     setLoading(true);
     try {
+      // Validate title byte length for PDA seed (Solana limit is 32 bytes per seed)
+      const titleBytes = Buffer.from(formData.title, 'utf8');
+      if (titleBytes.length > 32) {
+        alert(`Campaign title is too long (${titleBytes.length} bytes). Please use a shorter title (max 32 bytes).`);
+        setLoading(false);
+        return;
+      }
+
       const goalAmountLamports = new BN(parseFloat(formData.goalAmount) * 1e9); // Convert SOL to lamports
       const deadlineTimestamp = new BN(Math.floor(new Date(formData.deadline).getTime() / 1000));
 
-      // Derive campaign PDA
+      // Derive campaign PDA using title as in the Rust program
       const [campaignPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('campaign'), (program.provider as any).publicKey!.toBuffer(), Buffer.from(formData.title)],
+        [Buffer.from('campaign'), (program.provider as any).publicKey!.toBuffer(), titleBytes],
         program.programId
       );
 
@@ -208,7 +216,12 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
               />
               <div className="flex justify-between items-center text-xs">
                 <p className="text-muted-foreground">Make it catchy and descriptive</p>
-                <p className="text-muted-foreground">{formData.title.length}/200</p>
+                <div className="flex space-x-2">
+                  <p className="text-muted-foreground">{formData.title.length}/200</p>
+                  <p className={`${Buffer.from(formData.title, 'utf8').length > 32 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                    ({Buffer.from(formData.title, 'utf8').length}/32 bytes)
+                  </p>
+                </div>
               </div>
             </div>
 
