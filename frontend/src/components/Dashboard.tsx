@@ -72,7 +72,7 @@ export const Dashboard = () => {
                 whileTap={{ scale: 0.95 }}
               >
                 <MagnifyingGlassIcon className="h-4 w-4" />
-                <span>Browse Campaigns</span>
+                <span>Browse </span>
               </motion.button>
               <motion.button
                 onClick={() => setActiveTab('create')}
@@ -84,7 +84,7 @@ export const Dashboard = () => {
                 whileTap={{ scale: 0.95 }}
               >
                 <PlusCircleIcon className="h-4 w-4" />
-                <span>Create Campaign</span>
+                <span>Create</span>
               </motion.button>
             </div>
 
@@ -114,7 +114,7 @@ export const Dashboard = () => {
             className="min-h-[calc(100vh-12rem)]"
           >
             {activeTab === 'campaigns' && (
-              <div className="space-y-8">
+              <div className="space-y-8 mt-10">
                 <div className="text-center">
                   <motion.h1 
                     initial={{ opacity: 0, y: 20 }}
