@@ -21,7 +21,7 @@ interface Campaign {
   title: string;
   description: string;
   goalAmount: BN;
-  currentAmount: BN;
+  donatedAmount: BN;
   deadline: BN;
   metadataUri?: string;
   isActive: boolean;
@@ -42,7 +42,14 @@ export const CampaignList = () => {
       const campaignAccounts = await program.account.campaign.all();
       const campaignsData = campaignAccounts.map((account: any) => ({
         publicKey: account.publicKey,
-        ...account.account,
+        creator: account.account.creator,
+        title: account.account.title,
+        description: account.account.description,
+        goalAmount: account.account.goal_amount ? new BN(account.account.goal_amount) : new BN(0),
+        donatedAmount: account.account.donated_amount ? new BN(account.account.donated_amount) : new BN(0),
+        deadline: account.account.deadline ? new BN(account.account.deadline) : new BN(0),
+        metadataUri: account.account.metadata_uri,
+        isActive: account.account.is_active,
       }));
       setCampaigns(campaignsData);
     } catch (error) {
@@ -186,7 +193,7 @@ export const CampaignList = () => {
       {/* Campaigns Grid */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {campaigns.map((campaign) => {
-          const progress = getProgressPercentage(campaign.currentAmount, campaign.goalAmount);
+          const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
           const expired = isExpired(campaign.deadline);
           const campaignKey = campaign.publicKey.toString();
           
@@ -226,7 +233,7 @@ export const CampaignList = () => {
                   <div className="flex justify-between items-end">
                     <div>
                       <div className="text-2xl font-bold text-foreground">
-                        {formatSOL(campaign.currentAmount)} SOL
+                        {formatSOL(campaign.donatedAmount)} SOL
                       </div>
                       <div className="text-sm text-muted-foreground">
                         of {formatSOL(campaign.goalAmount)} SOL

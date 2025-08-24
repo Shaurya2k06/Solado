@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useProgramContext } from '../contexts/ProgramContext';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { Button } from '../components/ui/button';
 import { AnimatedCard } from './ui/animated-card';
@@ -68,7 +68,7 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
         .accounts({
           campaign: campaignPda,
           creator: (program.provider as any).publicKey,
-          systemProgram: new PublicKey('11111111111111111111111111111112'),
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
 
