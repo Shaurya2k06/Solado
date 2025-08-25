@@ -47,51 +47,35 @@ pub mod solado {
         Ok(())
     }
 
-    pub fn donate(ctx: Context<Donate>, amount: u64) -> Result<()> {
-        let campaign = &mut ctx.accounts.campaign;
-        let donor = &ctx.accounts.donor;
-        let donation_record = &mut ctx.accounts.donation_record;
-        let clock = Clock::get()?;
+pub fn donate(ctx: Context<Donate>, amount: u64, timestamp: i64) -> Result<()> {
+    let campaign = &mut ctx.accounts.campaign;
+    let donation_record = &mut ctx.accounts.donation_record;
 
-        // Validate donation
-        require!(amount > 0, ErrorCode::InvalidDonationAmount);
-        require!(campaign.is_active, ErrorCode::CampaignNotActive);
-        require!(clock.unix_timestamp < campaign.deadline, ErrorCode::CampaignExpired);
+    // Transfer SOL from donor to campaign
+    let ix = anchor_lang::solana_program::system_instruction::transfer(
+        &ctx.accounts.donor.key(),
+        &campaign.key(),
+        amount,
+    );
+    anchor_lang::solana_program::program::invoke(
+        &ix,
+        &[
+            ctx.accounts.donor.to_account_info(),
+            campaign.to_account_info(),
+        ],
+    )?;
 
-        // Transfer SOL from donor to campaign account
-        let transfer_instruction = system_program::Transfer {
-            from: donor.to_account_info(),
-            to: campaign.to_account_info(),
-        };
+    // Update campaign
+    campaign.donated_amount += amount;
 
-        let cpi_ctx = CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            transfer_instruction,
-        );
+    // Set donation record
+    donation_record.donor = ctx.accounts.donor.key();
+    donation_record.campaign = campaign.key();
+    donation_record.amount = amount;
+    donation_record.timestamp = timestamp;
 
-        system_program::transfer(cpi_ctx, amount)?;
-
-        // Update campaign
-        campaign.donated_amount = campaign.donated_amount.checked_add(amount).ok_or(ErrorCode::Overflow)?;
-
-        // Record donation
-        donation_record.donor = donor.key();
-        donation_record.campaign = campaign.key();
-        donation_record.amount = amount;
-        donation_record.timestamp = clock.unix_timestamp;
-        donation_record.bump = ctx.bumps.donation_record;
-
-        emit!(DonationMade {
-            campaign: campaign.key(),
-            donor: donor.key(),
-            amount,
-            total_donated: campaign.donated_amount,
-        });
-
-        Ok(())
-    }
-
-    pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
+    Ok(())
+}    pub fn withdraw(ctx: Context<Withdraw>) -> Result<()> {
         let campaign = &mut ctx.accounts.campaign;
         let creator = &ctx.accounts.creator;
         let clock = Clock::get()?;
@@ -198,6 +182,7 @@ pub struct CreateCampaign<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(amount: u64, timestamp: i64)]
 pub struct Donate<'info> {
     #[account(mut)]
     pub campaign: Account<'info, Campaign>,
@@ -207,7 +192,7 @@ pub struct Donate<'info> {
         init,
         payer = donor,
         space = DonationRecord::SPACE,
-        seeds = [b"donation", campaign.key().as_ref(), donor.key().as_ref()],
+        seeds = [b"donation", campaign.key().as_ref(), donor.key().as_ref(), &timestamp.to_le_bytes()],
         bump
     )]
     pub donation_record: Account<'info, DonationRecord>,

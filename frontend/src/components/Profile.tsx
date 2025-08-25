@@ -9,6 +9,7 @@ import { AnimatedCard } from './ui/animated-card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { motion } from 'framer-motion';
+import SimpleUserProfile from './SimpleUserProfile';
 import { 
   UserCircleIcon,
   WalletIcon,
@@ -929,6 +930,15 @@ const Profile = () => {
                               <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
                                 {campaign.description}
                               </p>
+                              {/* Creator Info */}
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs text-muted-foreground">by</span>
+                                <SimpleUserProfile userAddress={campaign.creator.toString()}>
+                                  <code className="text-xs font-mono text-muted-foreground hover:text-primary cursor-pointer transition-colors">
+                                    {campaign.creator.toString().slice(0, 6)}...{campaign.creator.toString().slice(-4)}
+                                  </code>
+                                </SimpleUserProfile>
+                              </div>
                             </div>
                             <Badge 
                               variant={campaign.isActive ? (expired ? "destructive" : "default") : "secondary"}

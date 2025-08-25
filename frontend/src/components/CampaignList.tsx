@@ -10,6 +10,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { BoxReveal } from './magicui/box-reveal';
 import { motion } from 'framer-motion';
+import SimpleUserProfile from './SimpleUserProfile';
 import { 
   UserIcon,
   ChartBarIcon,
@@ -562,9 +563,11 @@ export const CampaignList = () => {
                         </BoxReveal>
                         <div className="flex items-center gap-2 text-white/80 text-sm">
                           <UserIcon className="h-4 w-4" />
-                          <span className="font-mono">
-                            {campaign.creator.toString().slice(0, 4)}...{campaign.creator.toString().slice(-4)}
-                          </span>
+                          <SimpleUserProfile userAddress={campaign.creator.toString()}>
+                            <span className="font-mono hover:text-white cursor-pointer transition-colors">
+                              {campaign.creator.toString().slice(0, 4)}...{campaign.creator.toString().slice(-4)}
+                            </span>
+                          </SimpleUserProfile>
                         </div>
                       </div>
                     </div>
@@ -728,9 +731,11 @@ export const CampaignList = () => {
                 </BoxReveal>
                 <div className="flex items-center gap-3 text-white/80">
                   <UserIcon className="h-5 w-5" />
-                  <span className="font-mono text-sm">
-                    {selectedCampaign.creator.toString()}
-                  </span>
+                  <SimpleUserProfile userAddress={selectedCampaign.creator.toString()}>
+                    <span className="font-mono text-sm hover:text-white cursor-pointer transition-colors">
+                      {selectedCampaign.creator.toString()}
+                    </span>
+                  </SimpleUserProfile>
                 </div>
               </div>
             </div>

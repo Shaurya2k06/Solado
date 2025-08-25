@@ -9,6 +9,7 @@ import { AnimatedCard } from './ui/animated-card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { motion } from 'framer-motion';
+import SimpleUserProfile from './SimpleUserProfile';
 import { 
   HeartIcon,
   ShareIcon,
@@ -297,9 +298,11 @@ const CampaignDetail = () => {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Created by</p>
-                      <code className="text-sm font-mono text-foreground">
-                        {campaign.creator.toString().slice(0, 8)}...{campaign.creator.toString().slice(-8)}
-                      </code>
+                      <SimpleUserProfile userAddress={campaign.creator.toString()}>
+                        <code className="text-sm font-mono text-foreground hover:text-primary cursor-pointer transition-colors">
+                          {campaign.creator.toString().slice(0, 8)}...{campaign.creator.toString().slice(-8)}
+                        </code>
+                      </SimpleUserProfile>
                     </div>
                   </div>
                 </div>
