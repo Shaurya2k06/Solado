@@ -10,7 +10,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { BoxReveal } from './magicui/box-reveal';
 import { motion } from 'framer-motion';
-import SimpleUserProfile from './SimpleUserProfile';
+import UserProfileModal from './UserProfileModal';
 import { 
   UserIcon,
   ChartBarIcon,
@@ -289,22 +289,60 @@ export const CampaignList = () => {
     }
   };
 
-  const handleShare = (campaign: Campaign) => {
+  // Add sharing state
+  const [isSharing, setIsSharing] = useState(false);
+
+  const handleShare = async (campaign: Campaign) => {
+    // Prevent multiple simultaneous shares
+    if (isSharing) return;
+    
+    setIsSharing(true);
+    
     const url = `${window.location.origin}/campaign/${campaign.publicKey.toString()}`;
     const text = `Check out this amazing campaign: "${campaign.title}"`;
     
-    if (navigator.share) {
-      navigator.share({
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare({
         title: campaign.title,
         text: text,
         url: url,
-      }).catch(console.error);
-    } else {
-      navigator.clipboard.writeText(url).then(() => {
+      })) {
+        await navigator.share({
+          title: campaign.title,
+          text: text,
+          url: url,
+        });
+        showSuccess('Shared!', 'Campaign has been shared successfully.');
+      } else {
+        // Fallback to clipboard
+        await navigator.clipboard.writeText(url);
         showSuccess('Link Copied!', 'Campaign link has been copied to your clipboard.');
-      }).catch(() => {
-        showError('Copy Failed', 'Failed to copy link to clipboard. Please try again.');
-      });
+      }
+    } catch (error: any) {
+      // Handle different error types
+      if (error.name === 'AbortError') {
+        // User canceled the share - this is normal, no need to show error
+        console.log('Share canceled by user');
+      } else if (error.name === 'NotAllowedError') {
+        showError('Share Failed', 'Sharing is not allowed. Link copied to clipboard instead.');
+        try {
+          await navigator.clipboard.writeText(url);
+          showSuccess('Link Copied!', 'Campaign link has been copied to your clipboard.');
+        } catch (clipboardError) {
+          showError('Copy Failed', 'Failed to copy link to clipboard. Please try again.');
+        }
+      } else {
+        console.error('Share error:', error);
+        // Fallback to clipboard on any other error
+        try {
+          await navigator.clipboard.writeText(url);
+          showSuccess('Link Copied!', 'Campaign link has been copied to your clipboard.');
+        } catch (clipboardError) {
+          showError('Share Failed', 'Failed to share or copy link. Please try again.');
+        }
+      }
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -563,11 +601,11 @@ export const CampaignList = () => {
                         </BoxReveal>
                         <div className="flex items-center gap-2 text-white/80 text-sm">
                           <UserIcon className="h-4 w-4" />
-                          <SimpleUserProfile userAddress={campaign.creator.toString()}>
+                          <UserProfileModal userAddress={campaign.creator.toString()}>
                             <span className="font-mono hover:text-white cursor-pointer transition-colors">
                               {campaign.creator.toString().slice(0, 4)}...{campaign.creator.toString().slice(-4)}
                             </span>
-                          </SimpleUserProfile>
+                          </UserProfileModal>
                         </div>
                       </div>
                     </div>
@@ -668,6 +706,7 @@ export const CampaignList = () => {
                           variant="outline" 
                           size="sm" 
                           onClick={() => handleShare(campaign)}
+                          disabled={isSharing}
                           className="px-3"
                         >
                           <ShareIcon className="h-4 w-4" />
@@ -731,11 +770,11 @@ export const CampaignList = () => {
                 </BoxReveal>
                 <div className="flex items-center gap-3 text-white/80">
                   <UserIcon className="h-5 w-5" />
-                  <SimpleUserProfile userAddress={selectedCampaign.creator.toString()}>
+                  <UserProfileModal userAddress={selectedCampaign.creator.toString()}>
                     <span className="font-mono text-sm hover:text-white cursor-pointer transition-colors">
                       {selectedCampaign.creator.toString()}
                     </span>
-                  </SimpleUserProfile>
+                  </UserProfileModal>
                 </div>
               </div>
             </div>
@@ -880,10 +919,11 @@ export const CampaignList = () => {
                 <Button
                   variant="outline"
                   onClick={() => handleShare(selectedCampaign)}
+                  disabled={isSharing}
                   className="flex-1"
                 >
                   <ShareIcon className="h-4 w-4 mr-2" />
-                  Share Campaign
+                  {isSharing ? 'Sharing...' : 'Share Campaign'}
                 </Button>
                 <Button
                   variant="outline"

@@ -3,22 +3,27 @@
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import React, {
-  ComponentPropsWithoutRef,
   useEffect,
   useMemo,
   useState,
 } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 
 export function AnimatedListItem({ children }: { children: React.ReactNode }) {
-  const animations = {
-    initial: { scale: 0, opacity: 0 },
-    animate: { scale: 1, opacity: 1, originY: 0 },
-    exit: { scale: 0, opacity: 0 },
-    transition: { type: "spring", stiffness: 350, damping: 40 },
-  };
+  const initial = { scale: 0, opacity: 0 };
+  const animate = { scale: 1, opacity: 1, originY: 0 };
+  const exit = { scale: 0, opacity: 0 };
+  const transition = { type: "spring" as const, stiffness: 350, damping: 40 };
 
   return (
-    <motion.div {...animations} layout className="mx-auto w-full">
+    <motion.div
+      initial={initial}
+      animate={animate}
+      exit={exit}
+      transition={transition}
+      layout
+      className="mx-auto w-full border-2 border-[#646cff] bg-black text-white rounded-xl p-4 shadow-md"
+    >
       {children}
     </motion.div>
   );
@@ -54,7 +59,7 @@ export const AnimatedList = React.memo(
 
     return (
       <div
-        className={cn(`flex flex-col items-center gap-4`, className)}
+        className={cn("flex flex-col items-center gap-4", className)}
         {...props}
       >
         <AnimatePresence>
