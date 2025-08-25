@@ -163,6 +163,22 @@ pub mod solado {
 
         Ok(())
     }
+
+    pub fn delete_campaign(ctx: Context<DeleteCampaign>) -> Result<()> {
+        let campaign = &ctx.accounts.campaign;
+        let creator = &ctx.accounts.creator;
+
+        // Validate deletion
+        require!(campaign.creator == creator.key(), ErrorCode::Unauthorized);
+        require!(campaign.donated_amount == 0, ErrorCode::CampaignHasDonations);
+
+        emit!(CampaignDeleted {
+            campaign: campaign.key(),
+            creator: creator.key(),
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -219,6 +235,18 @@ pub struct Refund<'info> {
         close = donor
     )]
     pub donation_record: Account<'info, DonationRecord>,
+}
+
+#[derive(Accounts)]
+pub struct DeleteCampaign<'info> {
+    #[account(
+        mut,
+        has_one = creator,
+        close = creator
+    )]
+    pub campaign: Account<'info, Campaign>,
+    #[account(mut)]
+    pub creator: Signer<'info>,
 }
 
 #[account]
@@ -282,6 +310,12 @@ pub struct RefundIssued {
     pub amount: u64,
 }
 
+#[event]
+pub struct CampaignDeleted {
+    pub campaign: Pubkey,
+    pub creator: Pubkey,
+}
+
 #[error_code]
 pub enum ErrorCode {
     #[msg("Invalid goal amount")]
@@ -316,4 +350,6 @@ pub enum ErrorCode {
     Overflow,
     #[msg("Arithmetic underflow")]
     Underflow,
+    #[msg("Campaign has donations and cannot be deleted")]
+    CampaignHasDonations,
 }
