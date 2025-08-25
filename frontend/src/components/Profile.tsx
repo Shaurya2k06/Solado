@@ -24,7 +24,8 @@ import {
   CurrencyDollarIcon,
   TrashIcon,
   BanknotesIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import FundingGraph from './FundingGraph';
 import PieChart from './charts/PieChart';
@@ -63,6 +64,17 @@ const Profile = () => {
   const [campaignFundingData, setCampaignFundingData] = useState<{ label: string; value: number; color: string }[]>([]);
   const [donorStatsData, setDonorStatsData] = useState<{ label: string; value: number; color: string }[]>([]);
   const [campaignStatusData, setCampaignStatusData] = useState<{ label: string; value: number; color: string }[]>([]);
+  const [recentActivity, setRecentActivity] = useState<{
+    id: string;
+    type: 'donation' | 'campaign_created' | 'campaign_funded' | 'withdrawal';
+    timestamp: number;
+    amount?: number;
+    donor?: string;
+    campaign: string;
+    campaignTitle: string;
+    description: string;
+  }[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch wallet balance
   const fetchBalance = async () => {
@@ -479,6 +491,87 @@ const Profile = () => {
     return statusData;
   };
 
+  // Generate recent activity data
+  const generateRecentActivity = async () => {
+    if (!program || campaigns.length === 0) return [];
+
+    try {
+      const activities: any[] = [];
+      
+      // Get recent donations to user's campaigns
+      const userCampaigns = campaigns.map(c => ({ 
+        publicKey: c.publicKey.toString(), 
+        title: c.title 
+      }));
+      
+      const allDonations = await Promise.all(
+        userCampaigns.map(async ({ publicKey: campaignKey, title }) => {
+          try {
+            const donationRecords = await (program.account as any).donationRecord.all([
+              {
+                memcmp: {
+                  offset: 8 + 32, // Skip discriminator + donor = campaign offset
+                  bytes: campaignKey,
+                },
+              },
+            ]);
+            
+            return donationRecords.map((record: any) => ({
+              id: `donation-${record.publicKey.toString()}`,
+              type: 'donation' as const,
+              timestamp: record.account.timestamp.toNumber() * 1000,
+              amount: record.account.amount.toNumber() / LAMPORTS_PER_SOL,
+              donor: record.account.donor.toString(),
+              campaign: campaignKey,
+              campaignTitle: title,
+              description: `Received ${(record.account.amount.toNumber() / LAMPORTS_PER_SOL).toFixed(2)} SOL from ${record.account.donor.toString().slice(0, 4)}...${record.account.donor.toString().slice(-4)}`
+            }));
+          } catch (error) {
+            console.warn(`Error fetching donations for campaign ${campaignKey}:`, error);
+            return [];
+          }
+        })
+      );
+
+      activities.push(...allDonations.flat());
+
+      // Add campaign creation activities
+      campaigns.forEach(campaign => {
+        activities.push({
+          id: `campaign-${campaign.publicKey.toString()}`,
+          type: 'campaign_created' as const,
+          timestamp: Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000, // Mock timestamp within last 30 days
+          campaign: campaign.publicKey.toString(),
+          campaignTitle: campaign.title,
+          description: `Created campaign "${campaign.title}"`
+        });
+
+        // Add funding milestone activities for successful campaigns
+        const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
+        if (progress >= 100) {
+          activities.push({
+            id: `funded-${campaign.publicKey.toString()}`,
+            type: 'campaign_funded' as const,
+            timestamp: Date.now() - Math.random() * 20 * 24 * 60 * 60 * 1000,
+            amount: campaign.donatedAmount.toNumber() / LAMPORTS_PER_SOL,
+            campaign: campaign.publicKey.toString(),
+            campaignTitle: campaign.title,
+            description: `Campaign "${campaign.title}" reached 100% funding goal!`
+          });
+        }
+      });
+
+      // Sort by timestamp (most recent first) and return top 20
+      return activities
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 20);
+
+    } catch (error) {
+      console.error('Error generating recent activity:', error);
+      return [];
+    }
+  };
+
   const formatSOL = (amount: BN) => {
     return (amount.toNumber() / LAMPORTS_PER_SOL).toFixed(2);
   };
@@ -546,12 +639,27 @@ const Profile = () => {
         console.error('Error fetching donor data:', error);
         setDonorStatsData([]);
       }
+
+      // Fetch recent activity data
+      try {
+        const activityData = await generateRecentActivity();
+        setRecentActivity(activityData);
+      } catch (error) {
+        console.error('Error fetching recent activity:', error);
+        setRecentActivity([]);
+      }
     };
     
     if (campaigns.length >= 0) { // Fetch even with 0 campaigns to show empty state
       fetchAllChartData();
     }
   }, [campaigns, program, publicKey]);
+
+  // Filter campaigns based on search query
+  const filteredCampaigns = campaigns.filter(campaign => 
+    campaign.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    campaign.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (!connected || !publicKey) {
     return (
@@ -590,7 +698,6 @@ const Profile = () => {
   }
 
   // Calculate stats
-  const activeCampaigns = campaigns.filter(c => c.isActive && !isExpired(c.deadline));
   const totalRaised = campaigns.reduce((sum, c) => sum.add(c.donatedAmount), new BN(0));
   const successfulCampaigns = campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
   
@@ -680,52 +787,37 @@ const Profile = () => {
         </AnimatedCard>
       </motion.div>
 
-      {/* Stats Grid */}
+      {/* New Stats Cards */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.2 }}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-6"
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
       >
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-blue-500/20 rounded-xl">
-              <ChartBarIcon className="h-6 w-6 text-blue-400" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-foreground mb-1">{campaigns.length}</div>
-          <div className="text-sm text-muted-foreground">Total Campaigns</div>
-        </AnimatedCard>
-
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-green-500/20 rounded-xl">
-              <FireIcon className="h-6 w-6 text-green-400" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-foreground mb-1">{activeCampaigns.length}</div>
-          <div className="text-sm text-muted-foreground">Active</div>
-        </AnimatedCard>
-
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-purple-500/20 rounded-xl">
-              <WalletIcon className="h-6 w-6 text-purple-400" />
-            </div>
-          </div>
-          <div className="text-2xl font-bold text-foreground mb-1">{formatSOL(totalRaised)} SOL</div>
-          <div className="text-sm text-muted-foreground">Total Raised</div>
-        </AnimatedCard>
-
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-orange-500/20 rounded-xl">
-              <TrophyIcon className="h-6 w-6 text-orange-400" />
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-foreground mb-1">{successfulCampaigns.length}</div>
-          <div className="text-sm text-muted-foreground">Successful</div>
-        </AnimatedCard>
+        <StatsCard
+          title="Average Donation"
+          value={`${campaigns.length > 0 ? (totalRaised.toNumber() / LAMPORTS_PER_SOL / Math.max(1, donorStatsData.length)).toFixed(2) : '0.00'} SOL`}
+          icon={<CurrencyDollarIcon className="h-5 w-5" />}
+          color="green"
+        />
+        <StatsCard
+          title="Success Rate"
+          value={`${campaigns.length > 0 ? Math.round((successfulCampaigns.length / campaigns.length) * 100) : 0}%`}
+          icon={<TrophyIcon className="h-5 w-5" />}
+          color="blue"
+        />
+        <StatsCard
+          title="Total Donors"
+          value={donorStatsData.length}
+          icon={<UserCircleIcon className="h-5 w-5" />}
+          color="purple"
+        />
+        <StatsCard
+          title="Avg. Campaign Duration"
+          value={`${campaigns.length > 0 ? Math.round(campaigns.reduce((sum, c) => sum + getDaysLeft(c.deadline), 0) / campaigns.length) : 0} days`}
+          icon={<CalendarIcon className="h-5 w-5" />}
+          color="orange"
+        />
       </motion.div>
 
       {/* Tab Navigation */}
@@ -784,44 +876,11 @@ const Profile = () => {
               <FundingGraph data={fundingData} />
             </motion.div>
 
-            {/* Quick Stats Cards */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
-            >
-              <StatsCard
-                title="Average Donation"
-                value={`${campaigns.length > 0 ? (totalRaised.toNumber() / LAMPORTS_PER_SOL / Math.max(1, donorStatsData.length)).toFixed(2) : '0.00'} SOL`}
-                icon={<CurrencyDollarIcon className="h-5 w-5" />}
-                color="green"
-              />
-              <StatsCard
-                title="Success Rate"
-                value={`${campaigns.length > 0 ? Math.round((successfulCampaigns.length / campaigns.length) * 100) : 0}%`}
-                icon={<TrophyIcon className="h-5 w-5" />}
-                color="blue"
-              />
-              <StatsCard
-                title="Total Donors"
-                value={donorStatsData.length}
-                icon={<UserCircleIcon className="h-5 w-5" />}
-                color="purple"
-              />
-              <StatsCard
-                title="Avg. Campaign Duration"
-                value={`${campaigns.length > 0 ? Math.round(campaigns.reduce((sum, c) => sum + getDaysLeft(c.deadline), 0) / campaigns.length) : 0} days`}
-                icon={<CalendarIcon className="h-5 w-5" />}
-                color="orange"
-              />
-            </motion.div>
-
             {/* Charts Grid */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
               className="grid grid-cols-1 lg:grid-cols-3 gap-8"
             >
               {/* Campaign Funding Distribution */}
@@ -854,101 +913,169 @@ const Profile = () => {
               </AnimatedCard>
             </motion.div>
 
-            {/* Achievements */}
-            <AnimatedCard className="p-8">
-              <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
-                <TrophyIcon className="h-6 w-6 text-orange-400" />
-                Achievements
-              </h3>
-              
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {userAchievements.map((achievement) => {
-                  const rarityColors = {
-                    common: 'green',
-                    rare: 'blue', 
-                    epic: 'purple',
-                    legendary: 'orange'
-                  };
-                  
-                  const color = rarityColors[achievement.rarity];
-                  
-                  return (
-                    <div
-                      key={achievement.id}
-                      className={`p-6 rounded-xl border transition-all ${
-                        achievement.earned
-                          ? `bg-${color}-500/10 border-${color}-500/30 shadow-lg`
-                          : 'bg-muted/20 border-border'
-                      }`}
-                    >
-                      <div className="flex items-center gap-4 mb-3">
-                        <div className={`p-3 rounded-lg ${
-                          achievement.earned ? `bg-${color}-500/20` : 'bg-muted/20'
-                        }`}>
-                          <div className={`h-6 w-6 ${
-                            achievement.earned ? `text-${color}-400` : 'text-muted-foreground'
+            {/* Achievements Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+            >
+              <AnimatedCard className="p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-bold text-foreground flex items-center gap-3">
+                    <TrophyIcon className="h-6 w-6 text-orange-400" />
+                    Achievements
+                  </h3>
+                  <div className="text-sm text-muted-foreground">
+                    {userAchievements.filter(a => a.earned).length} of {userAchievements.length} unlocked
+                  </div>
+                </div>
+                
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {userAchievements.map((achievement) => {
+                    const rarityColors = {
+                      common: 'green',
+                      rare: 'blue', 
+                      epic: 'purple',
+                      legendary: 'orange'
+                    };
+                    
+                    const color = rarityColors[achievement.rarity];
+                    
+                    return (
+                      <div
+                        key={achievement.id}
+                        className={`p-6 rounded-xl border transition-all hover:scale-105 ${
+                          achievement.earned
+                            ? `bg-${color}-500/10 border-${color}-500/30 shadow-lg`
+                            : 'bg-muted/20 border-border'
+                        }`}
+                      >
+                        <div className="flex items-center gap-4 mb-3">
+                          <div className={`p-3 rounded-lg ${
+                            achievement.earned ? `bg-${color}-500/20` : 'bg-muted/20'
                           }`}>
-                            {achievement.icon}
+                            <div className={`h-6 w-6 ${
+                              achievement.earned ? `text-${color}-400` : 'text-muted-foreground'
+                            }`}>
+                              {achievement.icon}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-foreground">{achievement.name}</div>
+                            <div className="text-sm text-muted-foreground">{achievement.description}</div>
+                            <div className="text-xs text-muted-foreground/60 capitalize mt-1">
+                              {achievement.rarity} • {achievement.earned ? 'Unlocked' : 'Locked'}
+                            </div>
                           </div>
                         </div>
-                        <div>
-                          <div className="font-semibold text-foreground">{achievement.name}</div>
-                          <div className="text-sm text-muted-foreground">{achievement.description}</div>
-                        </div>
+                        {achievement.earned ? (
+                          <Badge variant="secondary" className="w-full justify-center">
+                            Unlocked! {achievement.id === 'first-campaign' ? '🎉' : 
+                                     achievement.id === 'campaign-success' ? '🏆' : 
+                                     achievement.id === 'fundraising-hero' ? '💰' : '⭐'}
+                          </Badge>
+                        ) : (
+                          <div className="text-xs text-muted-foreground text-center p-2 bg-muted/10 rounded">
+                            Complete to unlock
+                          </div>
+                        )}
                       </div>
-                      {achievement.earned ? (
-                        <Badge variant="secondary" className="w-full justify-center">
-                          Unlocked! {achievement.id === 'first-campaign' ? '🎉' : 
-                                   achievement.id === 'campaign-success' ? '🏆' : 
-                                   achievement.id === 'fundraising-hero' ? '💰' : '⭐'}
-                        </Badge>
-                      ) : (
-                        <div className="text-xs text-muted-foreground text-center p-2 bg-muted/10 rounded">
-                          Locked
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </AnimatedCard>
+                    );
+                  })}
+                </div>
+              </AnimatedCard>
+            </motion.div>
 
-            {/* Recent Activity */}
-            <AnimatedCard className="p-8">
-              <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
-                <ClockIcon className="h-6 w-6 text-primary" />
-                Recent Activity
-              </h3>
-              
-              {campaigns.length === 0 ? (
-                <div className="text-center py-8">
-                  <div className="text-muted-foreground mb-4">
-                    <ChartBarIcon className="w-16 h-16 mx-auto opacity-50" />
+            {/* Recent Activity Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.4 }}
+            >
+              <AnimatedCard className="p-8">
+                <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
+                  <ClockIcon className="h-6 w-6 text-blue-400" />
+                  Recent Activity
+                </h3>
+                
+                {recentActivity.length === 0 ? (
+                  <div className="text-center py-8">
+                    <ClockIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                    <p className="text-muted-foreground text-lg">No recent activity</p>
+                    <p className="text-muted-foreground text-sm">Start creating campaigns to see activity here!</p>
                   </div>
-                  <p className="text-muted-foreground mb-4 text-lg">No recent activity</p>
-                  <Button onClick={() => setActiveTab('campaigns')} className="bg-primary hover:bg-primary/90">
-                    Create Your First Campaign
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {campaigns.slice(0, 5).map((campaign) => (
-                    <div key={campaign.publicKey.toString()} className="flex items-center gap-4 p-4 bg-muted/20 rounded-xl">
-                      <div className="w-3 h-3 bg-green-400 rounded-full flex-shrink-0"></div>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-foreground truncate">{campaign.title}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {formatSOL(campaign.donatedAmount)} / {formatSOL(campaign.goalAmount)} SOL raised
+                ) : (
+                  <div className="space-y-4 max-h-96 overflow-y-auto">
+                    {recentActivity.map((activity) => {
+                      const getActivityIcon = () => {
+                        switch (activity.type) {
+                          case 'donation':
+                            return <CurrencyDollarIcon className="h-5 w-5 text-green-400" />;
+                          case 'campaign_created':
+                            return <FireIcon className="h-5 w-5 text-blue-400" />;
+                          case 'campaign_funded':
+                            return <TrophyIcon className="h-5 w-5 text-orange-400" />;
+                          case 'withdrawal':
+                            return <BanknotesIcon className="h-5 w-5 text-purple-400" />;
+                          default:
+                            return <ClockIcon className="h-5 w-5 text-muted-foreground" />;
+                        }
+                      };
+
+                      const getTimeAgo = (timestamp: number) => {
+                        const diff = Date.now() - timestamp;
+                        const minutes = Math.floor(diff / (1000 * 60));
+                        const hours = Math.floor(diff / (1000 * 60 * 60));
+                        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+                        if (minutes < 60) return `${minutes}m ago`;
+                        if (hours < 24) return `${hours}h ago`;
+                        return `${days}d ago`;
+                      };
+
+                      return (
+                        <div 
+                          key={activity.id}
+                          className="flex items-start gap-4 p-4 rounded-lg bg-muted/20 hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="p-2 rounded-lg bg-muted/30">
+                            {getActivityIcon()}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="text-foreground font-medium truncate">
+                                {activity.description}
+                              </p>
+                              <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
+                                {getTimeAgo(activity.timestamp)}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 mt-1">
+                              <p className="text-sm text-muted-foreground truncate">
+                                Campaign: {activity.campaignTitle}
+                              </p>
+                              {activity.amount && (
+                                <Badge variant="outline" className="text-xs">
+                                  {activity.amount.toFixed(2)} SOL
+                                </Badge>
+                              )}
+                            </div>
+
+                            {activity.donor && (
+                              <p className="text-xs text-muted-foreground/60 mt-1">
+                                From: {activity.donor.slice(0, 8)}...{activity.donor.slice(-8)}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <Badge variant={isExpired(campaign.deadline) ? "destructive" : "default"} className="flex-shrink-0">
-                        {isExpired(campaign.deadline) ? 'Expired' : `${getDaysLeft(campaign.deadline)}d left`}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </AnimatedCard>
+                      );
+                    })}
+                  </div>
+                )}
+              </AnimatedCard>
+            </motion.div>
 
             {/* Withdrawal Available */}
             {campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100 && isExpired(c.deadline) && c.isActive).length > 0 && (
@@ -995,23 +1122,60 @@ const Profile = () => {
         )}
 
         {activeTab === 'campaigns' && (
-          <div>
-            {campaigns.length === 0 ? (
-              <AnimatedCard className="p-12 text-center">
-                <div className="text-muted-foreground mb-6">
-                  <ChartBarIcon className="w-20 h-20 mx-auto opacity-50" />
-                </div>
-                <h3 className="text-3xl font-bold text-foreground mb-4">No Campaigns Yet</h3>
-                <p className="text-muted-foreground mb-8 text-lg max-w-2xl mx-auto">
-                  You haven't created any campaigns yet. Start your fundraising journey by creating your first campaign on the blockchain.
-                </p>
-                <Button size="lg" className="bg-primary hover:bg-primary/90">
-                  Create Your First Campaign
-                </Button>
-              </AnimatedCard>
+          <div className="space-y-6">
+            {/* Search Bar */}
+            <div className="flex items-center space-x-4 mb-6">
+              <div className="relative flex-1">
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search campaigns by title or description..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-background/50 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all duration-200"
+                />
+              </div>
+              <div className="text-sm text-muted-foreground whitespace-nowrap">
+                {filteredCampaigns.length} of {campaigns.length} campaigns
+              </div>
+            </div>
+
+            {/* Campaigns Grid */}
+            {filteredCampaigns.length === 0 ? (
+              searchQuery ? (
+                <AnimatedCard className="p-12 text-center">
+                  <div className="text-muted-foreground mb-6">
+                    <MagnifyingGlassIcon className="w-20 h-20 mx-auto opacity-50" />
+                  </div>
+                  <h3 className="text-2xl font-bold text-foreground mb-4">No campaigns found</h3>
+                  <p className="text-muted-foreground mb-8 text-lg max-w-2xl mx-auto">
+                    No campaigns match your search for "{searchQuery}". Try adjusting your search terms.
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setSearchQuery('')}
+                    className="bg-background/50 backdrop-blur-sm"
+                  >
+                    Clear Search
+                  </Button>
+                </AnimatedCard>
+              ) : (
+                <AnimatedCard className="p-12 text-center">
+                  <div className="text-muted-foreground mb-6">
+                    <ChartBarIcon className="w-20 h-20 mx-auto opacity-50" />
+                  </div>
+                  <h3 className="text-3xl font-bold text-foreground mb-4">No Campaigns Yet</h3>
+                  <p className="text-muted-foreground mb-8 text-lg max-w-2xl mx-auto">
+                    You haven't created any campaigns yet. Start your fundraising journey by creating your first campaign on the blockchain.
+                  </p>
+                  <Button size="lg" className="bg-primary hover:bg-primary/90">
+                    Create Your First Campaign
+                  </Button>
+                </AnimatedCard>
+              )
             ) : (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {campaigns.map((campaign) => {
+                {filteredCampaigns.map((campaign) => {
                   const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
                   const expired = isExpired(campaign.deadline);
                   const daysLeft = getDaysLeft(campaign.deadline);

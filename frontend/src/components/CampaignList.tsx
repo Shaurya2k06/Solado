@@ -14,7 +14,6 @@ import UserProfileModal from './UserProfileModal';
 import { 
   UserIcon,
   ChartBarIcon,
-  CurrencyDollarIcon,
   RocketLaunchIcon,
   ClockIcon,
   FireIcon,
@@ -22,7 +21,8 @@ import {
   ShareIcon,
   XMarkIcon,
   CalendarIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 
 interface Campaign {
@@ -48,6 +48,7 @@ export const CampaignList = () => {
   const [filter, setFilter] = useState<'all' | 'active' | 'successful' | 'ending-soon'>('all');
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [modalDonationAmount, setModalDonationAmount] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const fetchCampaigns = async () => {
     if (!program) return;
@@ -368,19 +369,33 @@ export const CampaignList = () => {
   };
 
   const getFilteredCampaigns = () => {
+    let filtered;
     switch (filter) {
       case 'active':
-        return campaigns.filter(c => c.isActive && !isExpired(c.deadline));
+        filtered = campaigns.filter(c => c.isActive && !isExpired(c.deadline));
+        break;
       case 'successful':
-        return campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+        filtered = campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+        break;
       case 'ending-soon':
-        return campaigns.filter(c => {
+        filtered = campaigns.filter(c => {
           const daysLeft = getDaysLeft(c.deadline);
           return c.isActive && daysLeft <= 7 && daysLeft > 0;
         });
+        break;
       default:
-        return campaigns;
+        filtered = campaigns;
     }
+
+    // Apply search filter if search query exists
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(campaign => 
+        campaign.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        campaign.description.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    return filtered;
   };
 
   const filteredCampaigns = getFilteredCampaigns();
@@ -425,66 +440,40 @@ export const CampaignList = () => {
 
   return (
     <div className="space-y-8">
-      {/* Stats Overview */}
+      {/* Search Bar */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+        className="max-w-2xl mx-auto"
       >
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-blue-500/20 rounded-xl">
-              <ChartBarIcon className="h-6 w-6 text-blue-400" />
-            </div>
+        <div className="flex items-center space-x-4 mb-8">
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search campaigns by title or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 rounded-xl border border-border bg-background/80 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all duration-200 text-lg"
+            />
           </div>
-          <BoxReveal boxColor="#3B82F6" duration={0.5}>
-            <div className="text-3xl font-bold text-foreground mb-1">{campaigns.length}</div>
-          </BoxReveal>
-          <div className="text-sm text-muted-foreground">Total Campaigns</div>
-        </AnimatedCard>
-
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-green-500/20 rounded-xl">
-              <FireIcon className="h-6 w-6 text-green-400" />
-            </div>
+          {searchQuery && (
+            <Button
+              variant="outline"
+              onClick={() => setSearchQuery('')}
+              className="bg-background/50 backdrop-blur-sm"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+        
+        {searchQuery && (
+          <div className="text-center text-sm text-muted-foreground mb-6">
+            {getFilteredCampaigns().length} campaigns found for "{searchQuery}"
           </div>
-          <BoxReveal boxColor="#10B981" duration={0.5}>
-            <div className="text-3xl font-bold text-foreground mb-1">
-              {campaigns.filter(c => c.isActive && !isExpired(c.deadline)).length}
-            </div>
-          </BoxReveal>
-          <div className="text-sm text-muted-foreground">Active</div>
-        </AnimatedCard>
-
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-purple-500/20 rounded-xl">
-              <CurrencyDollarIcon className="h-6 w-6 text-purple-400" />
-            </div>
-          </div>
-          <BoxReveal boxColor="#8B5CF6" duration={0.5}>
-            <div className="text-2xl font-bold text-foreground mb-1">
-              {formatSOL(campaigns.reduce((sum, c) => sum.add(c.donatedAmount), new BN(0)))} SOL
-            </div>
-          </BoxReveal>
-          <div className="text-sm text-muted-foreground">Total Raised</div>
-        </AnimatedCard>
-
-        <AnimatedCard className="p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-3">
-            <div className="p-2 bg-orange-500/20 rounded-xl">
-              <RocketLaunchIcon className="h-6 w-6 text-orange-400" />
-            </div>
-          </div>
-          <BoxReveal boxColor="#F97316" duration={0.5}>
-            <div className="text-3xl font-bold text-foreground mb-1">
-              {campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100).length}
-            </div>
-          </BoxReveal>
-          <div className="text-sm text-muted-foreground">Successful</div>
-        </AnimatedCard>
+        )}
       </motion.div>
 
       {/* Filter Tabs */}
@@ -522,22 +511,54 @@ export const CampaignList = () => {
         transition={{ duration: 0.6, delay: 0.2 }}
       >
         {filteredCampaigns.length === 0 ? (
-          <AnimatedCard className="p-12 text-center">
-            <div className="text-muted-foreground mb-6">
-              <ChartBarIcon className="w-20 h-20 mx-auto opacity-50" />
-            </div>
-            <BoxReveal boxColor="#8B5CF6" duration={0.5}>
-              <h3 className="text-3xl font-bold text-foreground mb-4">No Campaigns Found</h3>
-            </BoxReveal>
-            <BoxReveal boxColor="#8B5CF6" duration={0.5}>
-              <p className="text-muted-foreground mb-8 text-lg">
-                {filter === 'all' 
-                  ? 'No campaigns have been created yet. Be the first to start a campaign!'
-                  : `No ${filter.replace('-', ' ')} campaigns found. Try a different filter.`
-                }
-              </p>
-            </BoxReveal>
-          </AnimatedCard>
+          searchQuery ? (
+            <AnimatedCard className="p-12 text-center">
+              <div className="text-muted-foreground mb-6">
+                <MagnifyingGlassIcon className="w-20 h-20 mx-auto opacity-50" />
+              </div>
+              <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                <h3 className="text-3xl font-bold text-foreground mb-4">No campaigns found</h3>
+              </BoxReveal>
+              <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                <p className="text-muted-foreground mb-8 text-lg max-w-2xl mx-auto">
+                  No campaigns match your search for "<span className="text-primary font-semibold">{searchQuery}</span>". 
+                  Try adjusting your search terms or browse all campaigns.
+                </p>
+              </BoxReveal>
+              <div className="flex gap-4 justify-center">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setSearchQuery('')}
+                  className="bg-background/50 backdrop-blur-sm"
+                >
+                  Clear Search
+                </Button>
+                <Button 
+                  onClick={() => {setSearchQuery(''); setFilter('all');}}
+                  className="bg-primary/10 hover:bg-primary/20 text-primary border-primary/20"
+                >
+                  Browse All Campaigns
+                </Button>
+              </div>
+            </AnimatedCard>
+          ) : (
+            <AnimatedCard className="p-12 text-center">
+              <div className="text-muted-foreground mb-6">
+                <ChartBarIcon className="w-20 h-20 mx-auto opacity-50" />
+              </div>
+              <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                <h3 className="text-3xl font-bold text-foreground mb-4">No Campaigns Found</h3>
+              </BoxReveal>
+              <BoxReveal boxColor="#8B5CF6" duration={0.5}>
+                <p className="text-muted-foreground mb-8 text-lg">
+                  {filter === 'all' 
+                    ? 'No campaigns have been created yet. Be the first to start a campaign!'
+                    : `No ${filter.replace('-', ' ')} campaigns found. Try a different filter.`
+                  }
+                </p>
+              </BoxReveal>
+            </AnimatedCard>
+          )
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCampaigns.map((campaign, index) => {
