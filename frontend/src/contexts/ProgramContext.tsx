@@ -9,14 +9,11 @@ import IDL from '../idl/solado.json';
 const PROGRAM_ID = new PublicKey('8SsWF8CPzvbepfQqkrGfafgtEG1ZZWx6xRtJXW5vMCDH');
 
 interface ProgramContextType {
-  program: Program<Idl> | null;
+  program: Program<Idl>;
   programId: PublicKey;
 }
 
-const ProgramContext = createContext<ProgramContextType>({
-  program: null,
-  programId: PROGRAM_ID,
-});
+const ProgramContext = createContext<ProgramContextType>({} as ProgramContextType);
 
 export const useProgramContext = () => useContext(ProgramContext);
 
@@ -29,15 +26,30 @@ export const ProgramProvider = ({ children }: ProgramProviderProps) => {
   const wallet = useAnchorWallet();
 
   const program = useMemo(() => {
-    if (!wallet) return null;
-
-    const provider = new AnchorProvider(
-      connection,
-      wallet,
-      { commitment: 'confirmed' }
-    );
-
-    return new Program(IDL as Idl, provider);
+    if (wallet) {
+      // Create full program instance with wallet for transactions
+      const provider = new AnchorProvider(
+        connection,
+        wallet,
+        { commitment: 'confirmed' }
+      );
+      return new Program(IDL as Idl, provider);
+    } else {
+      // Create read-only program instance for viewing data without wallet
+      // Use a dummy wallet that can't sign transactions
+      const dummyWallet = {
+        publicKey: PublicKey.default,
+        signTransaction: () => Promise.reject(new Error('No wallet connected')),
+        signAllTransactions: () => Promise.reject(new Error('No wallet connected')),
+      };
+      
+      const provider = new AnchorProvider(
+        connection,
+        dummyWallet as any,
+        { commitment: 'confirmed' }
+      );
+      return new Program(IDL as Idl, provider);
+    }
   }, [connection, wallet]);
 
   const value = {

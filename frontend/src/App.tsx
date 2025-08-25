@@ -14,13 +14,8 @@ import './App.css';
 // Component to handle campaign detail routing
 function CampaignDetailWrapper() {
   useParams();
-  const { connected, publicKey } = useWallet();
-
-  // If wallet is not connected, show landing page
-  if (!connected || !publicKey) {
-    return <LandingPage />;
-  }
-
+  
+  // Always show CampaignDetail - it handles wallet connection internally
   return <CampaignDetail />;
 }
 

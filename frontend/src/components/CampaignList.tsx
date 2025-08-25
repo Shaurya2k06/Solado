@@ -51,8 +51,6 @@ export const CampaignList = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchCampaigns = async () => {
-    if (!program) return;
-    
     try {
       setLoading(true);
       const campaignAccounts = await (program.account as any).campaign.all();
@@ -87,7 +85,7 @@ export const CampaignList = () => {
   }, [program]);
 
   const handleDonate = async (campaignKey: string) => {
-    if (!program || !publicKey) return;
+    if (!publicKey) return;
 
     const amount = donationAmounts[campaignKey];
     if (!amount || parseFloat(amount) <= 0) {

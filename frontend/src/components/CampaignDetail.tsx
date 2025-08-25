@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useProgramContext } from '../contexts/ProgramContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { PublicKey, LAMPORTS_PER_SOL, SystemProgram } from '@solana/web3.js';
@@ -47,10 +48,10 @@ const CampaignDetail = () => {
 
   useEffect(() => {
     fetchCampaign();
-  }, [campaignId, program]);
+  }, [campaignId]);
 
   const fetchCampaign = async () => {
-    if (!program || !campaignId) {
+    if (!campaignId) {
       setLoading(false);
       return;
     }
@@ -80,7 +81,7 @@ const CampaignDetail = () => {
   };
 
   const handleDonate = async () => {
-    if (!program || !publicKey || !campaign || !donationAmount) return;
+    if (!publicKey || !campaign || !donationAmount) return;
     
     try {
       setDonating(true);
@@ -380,46 +381,88 @@ const CampaignDetail = () => {
               </AnimatedCard>
             </motion.div>
 
-            {/* Donation Form */}
-            {!expired && campaign.isActive && !isGoalReached && connected && (
+            {/* Donation Form or Sign In */}
+            {!expired && campaign.isActive && !isGoalReached && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
                 <AnimatedCard className="p-6">
-                  <div className="space-y-4">
-                    <h3 className="text-xl font-bold text-foreground">Support This Campaign</h3>
-                    
-                    <div className="space-y-3">
-                      <label className="text-sm font-medium text-muted-foreground">
-                        Donation Amount (SOL)
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="0.00"
-                        value={donationAmount}
-                        onChange={(e) => setDonationAmount(e.target.value)}
-                        className="w-full px-4 py-3 text-lg bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-                        step="0.01"
-                        min="0"
-                      />
+                  {connected ? (
+                    <div className="space-y-4">
+                      <h3 className="text-xl font-bold text-foreground">Support This Campaign</h3>
                       
-                      <Button
-                        onClick={handleDonate}
-                        disabled={donating || !donationAmount}
-                        className="w-full bg-primary hover:bg-primary/90 h-12"
-                      >
-                        {donating ? (
-                          <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        ) : (
-                          <>
-                            <HeartIcon className="h-5 w-5 mr-2" />
-                            Donate Now
-                          </>
-                        )}
-                      </Button>
+                      <div className="space-y-3">
+                        <label className="text-sm font-medium text-muted-foreground">
+                          Donation Amount (SOL)
+                        </label>
+                        <input
+                          type="number"
+                          placeholder="0.00"
+                          value={donationAmount}
+                          onChange={(e) => setDonationAmount(e.target.value)}
+                          className="w-full px-4 py-3 text-lg bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                          step="0.01"
+                          min="0"
+                        />
+                        
+                        <Button
+                          onClick={handleDonate}
+                          disabled={donating || !donationAmount}
+                          className="w-full bg-primary hover:bg-primary/90 h-12"
+                        >
+                          {donating ? (
+                            <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                          ) : (
+                            <>
+                              <HeartIcon className="h-5 w-5 mr-2" />
+                              Donate Now
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="space-y-4 text-center">
+                      <h3 className="text-xl font-bold text-foreground">Support This Campaign</h3>
+                      <p className="text-muted-foreground">
+                        Connect your wallet to donate and help this campaign reach its goal.
+                      </p>
+                      <div className="flex justify-center">
+                        <WalletMultiButton className="!bg-primary !rounded-lg !h-12 !px-6" />
+                      </div>
+                    </div>
+                  )}
+                </AnimatedCard>
+              </motion.div>
+            )}
+
+            {/* Campaign Status Message for Non-Connected Users */}
+            {!connected && (expired || isGoalReached) && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.3 }}
+              >
+                <AnimatedCard className="p-6">
+                  <div className="space-y-4 text-center">
+                    <div className="flex justify-center">
+                      {isGoalReached ? (
+                        <TrophyIcon className="h-12 w-12 text-yellow-500" />
+                      ) : (
+                        <ClockIcon className="h-12 w-12 text-muted-foreground" />
+                      )}
+                    </div>
+                    <h3 className="text-xl font-bold text-foreground">
+                      {isGoalReached ? 'Campaign Successful!' : 'Campaign Ended'}
+                    </h3>
+                    <p className="text-muted-foreground">
+                      {isGoalReached 
+                        ? 'This campaign has successfully reached its funding goal.' 
+                        : 'This campaign has ended and is no longer accepting donations.'
+                      }
+                    </p>
                   </div>
                 </AnimatedCard>
               </motion.div>
