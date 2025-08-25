@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -895,13 +896,12 @@ const Profile = () => {
                       You haven't supported any campaigns yet. Explore active campaigns to make your first donation!
                     </p>
                   </div>
-                  <Button 
-                    className="bg-primary hover:bg-primary/90"
-                    onClick={() => window.location.href = '/'}
-                  >
-                    <FireIcon className="h-4 w-4 mr-2" />
-                    Discover Campaigns
-                  </Button>
+                  <Link to="/">
+                    <Button className="bg-primary hover:bg-primary/90">
+                      <FireIcon className="h-4 w-4 mr-2" />
+                      Discover Campaigns
+                    </Button>
+                  </Link>
                 </motion.div>
               </AnimatedCard>
             ) : (
@@ -1014,15 +1014,16 @@ const Profile = () => {
 
                           {/* Action Button */}
                           <div className="pt-2">
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
-                              className="w-full hover:bg-primary/10"
-                              onClick={() => window.open(`/campaign/${campaign.publicKey.toString()}`, '_blank')}
-                            >
-                              <EyeIcon className="h-4 w-4 mr-2" />
-                              View Campaign
-                            </Button>
+                            <Link to={`/campaign/${campaign.publicKey.toString()}`}>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="w-full hover:bg-primary/10"
+                              >
+                                <EyeIcon className="h-4 w-4 mr-2" />
+                                View Campaign
+                              </Button>
+                            </Link>
                           </div>
                         </div>
                       </AnimatedCard>

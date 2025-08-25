@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -648,14 +649,18 @@ export const CampaignList = () => {
 
                       {/* Action Buttons */}
                       <div className="flex gap-2 pt-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
+                        <Link 
+                          to={`/campaign/${campaignKey}`}
                           className="flex-1"
-                          onClick={() => setSelectedCampaign(campaign)}
                         >
-                          View Details
-                        </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full"
+                          >
+                            View Details
+                          </Button>
+                        </Link>
                         <Button 
                           variant="outline" 
                           size="sm" 

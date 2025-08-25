@@ -16,10 +16,8 @@ import {
   CurrencyDollarIcon,
   TrophyIcon,
   UserIcon,
-  CalendarIcon,
   ArrowLeftIcon,
-  LinkIcon,
-  ChartBarIcon
+  LinkIcon
 } from '@heroicons/react/24/outline';
 
 interface Campaign {
@@ -434,7 +432,7 @@ const CampaignDetail = () => {
                 <div className="space-y-4">
                   <h3 className="text-lg font-bold text-foreground">Share Campaign</h3>
                   <div className="grid grid-cols-1 gap-2">
-                    {shareOptions.map((option, index) => (
+                    {shareOptions.map((option) => (
                       <Button
                         key={option.name}
                         variant="outline"
