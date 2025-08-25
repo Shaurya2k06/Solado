@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletContextProvider } from './contexts/WalletContextProvider';
 import { ProgramProvider } from './contexts/ProgramContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationContainer } from './components/NotificationContainer';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
 import './App.css';
@@ -22,6 +24,7 @@ function AppContent() {
         ) : (
           <Dashboard />
         )}
+        <NotificationContainer />
       </div>
     </ProgramProvider>
   );
@@ -30,7 +33,9 @@ function AppContent() {
 function App() {
   return (
     <WalletContextProvider>
-      <AppContent />
+      <NotificationProvider>
+        <AppContent />
+      </NotificationProvider>
     </WalletContextProvider>
   );
 }

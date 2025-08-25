@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { AnimatedCard } from './ui/animated-card';
@@ -37,6 +38,7 @@ interface Campaign {
 export const CampaignList = () => {
   const { connected, publicKey } = useWallet();
   const { program } = useProgramContext();
+  const { showSuccess, showError, showWarning } = useNotifications();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [donationAmounts, setDonationAmounts] = useState<{ [key: string]: string }>({});
@@ -86,7 +88,7 @@ export const CampaignList = () => {
 
     const amount = donationAmounts[campaignKey];
     if (!amount || parseFloat(amount) <= 0) {
-      alert('Please enter a valid donation amount');
+      showWarning('Invalid Amount', 'Please enter a valid donation amount');
       return;
     }
 
@@ -112,11 +114,19 @@ export const CampaignList = () => {
         throw new Error(`Invalid campaign: ${fetchError.message}`);
       }
 
+      // Generate a unique timestamp for this donation
+      const timestamp = Date.now();
+      
+      // Convert timestamp to 8-byte little-endian buffer (same as Rust's .to_le_bytes())
+      const timestampBuffer = Buffer.alloc(8);
+      timestampBuffer.writeBigInt64LE(BigInt(timestamp), 0);
+
       const [donationRecordPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from('donation'),
           new PublicKey(campaignKey).toBuffer(),
           publicKey.toBuffer(),
+          timestampBuffer,
         ],
         program.programId
       );
@@ -126,13 +136,14 @@ export const CampaignList = () => {
         donor: publicKey.toString(),
         donationRecordPda: donationRecordPda.toString(),
         amount: amountLamports,
+        timestamp,
         programId: program.programId.toString()
       });
 
       // First, let's try to simulate the transaction
       try {
         const simulationResult = await program.methods
-          .donate(new BN(amountLamports))
+          .donate(new BN(amountLamports), new BN(timestamp))
           .accounts({
             campaign: new PublicKey(campaignKey),
             donor: publicKey,
@@ -148,7 +159,7 @@ export const CampaignList = () => {
       }
 
       const tx = await program.methods
-        .donate(new BN(amountLamports))
+        .donate(new BN(amountLamports), new BN(timestamp))
         .accounts({
           campaign: new PublicKey(campaignKey),
           donor: publicKey,
@@ -162,7 +173,7 @@ export const CampaignList = () => {
       // Clear donation amount and refresh campaigns
       setDonationAmounts(prev => ({ ...prev, [campaignKey]: '' }));
       await fetchCampaigns();
-      alert('Donation successful!');
+      showSuccess('Donation Successful!', `Your donation of ${amount} SOL has been processed successfully.`);
     } catch (error: any) {
       console.error('Donation failed:', error);
       console.error('Error name:', error.name);
@@ -195,7 +206,7 @@ export const CampaignList = () => {
         errorMessage += `Unknown error: ${error.message || 'Please try again.'}`;
       }
       
-      alert(errorMessage);
+      showError('Donation Failed', errorMessage);
     } finally {
       setDonatingTo(null);
     }
@@ -206,7 +217,7 @@ export const CampaignList = () => {
 
     const amount = modalDonationAmount;
     if (!amount || parseFloat(amount) <= 0) {
-      alert('Please enter a valid donation amount');
+      showWarning('Invalid Amount', 'Please enter a valid donation amount');
       return;
     }
 
@@ -214,11 +225,19 @@ export const CampaignList = () => {
       setDonatingTo(selectedCampaign.publicKey.toString());
       const amountLamports = parseFloat(amount) * LAMPORTS_PER_SOL;
 
+      // Generate a unique timestamp for this donation
+      const timestamp = Date.now();
+      
+      // Convert timestamp to 8-byte little-endian buffer (same as Rust's .to_le_bytes())
+      const timestampBuffer = Buffer.alloc(8);
+      timestampBuffer.writeBigInt64LE(BigInt(timestamp), 0);
+
       const [donationRecordPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from('donation'),
           selectedCampaign.publicKey.toBuffer(),
           publicKey.toBuffer(),
+          timestampBuffer,
         ],
         program.programId
       );
@@ -228,11 +247,12 @@ export const CampaignList = () => {
         donor: publicKey.toString(),
         donationRecordPda: donationRecordPda.toString(),
         amount: amountLamports,
+        timestamp,
         programId: program.programId.toString()
       });
 
       await program.methods
-        .donate(new BN(amountLamports))
+        .donate(new BN(amountLamports), new BN(timestamp))
         .accounts({
           campaign: selectedCampaign.publicKey,
           donor: publicKey,
@@ -244,7 +264,7 @@ export const CampaignList = () => {
       // Clear donation amount and refresh campaigns
       setModalDonationAmount('');
       await fetchCampaigns();
-      alert('Donation successful!');
+      showSuccess('Donation Successful!', `Your donation of ${amount} SOL has been processed successfully.`);
       setSelectedCampaign(null); // Close modal
     } catch (error: any) {
       console.error('Donation failed:', error);
@@ -261,7 +281,7 @@ export const CampaignList = () => {
         errorMessage += 'Please check your wallet connection and try again.';
       }
       
-      alert(errorMessage);
+      showError('Donation Failed', errorMessage);
     } finally {
       setDonatingTo(null);
     }
@@ -279,9 +299,9 @@ export const CampaignList = () => {
       }).catch(console.error);
     } else {
       navigator.clipboard.writeText(url).then(() => {
-        alert('Campaign link copied to clipboard!');
+        showSuccess('Link Copied!', 'Campaign link has been copied to your clipboard.');
       }).catch(() => {
-        alert('Failed to copy link');
+        showError('Copy Failed', 'Failed to copy link to clipboard. Please try again.');
       });
     }
   };
@@ -494,7 +514,7 @@ export const CampaignList = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: index * 0.1 }}
                 >
-                  <AnimatedCard className="group relative overflow-hidden h-full">
+                  <AnimatedCard className="group relative overflow-hidden h-full hover:shadow-xl transition-all duration-300">
                     {/* Status Badge */}
                     <div className="absolute top-4 right-4 z-10">
                       <Badge 
@@ -591,9 +611,9 @@ export const CampaignList = () => {
                         </div>
                       </div>
 
-                      {/* Donation Section */}
+                      {/* Donation Section - Only visible on hover */}
                       {!expired && campaign.isActive && !isGoalReached && (
-                        <div className="space-y-3 pt-2">
+                        <div className="opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 ease-out space-y-3 pt-2">
                           <div className="flex gap-2">
                             <input
                               type="number"
@@ -603,7 +623,7 @@ export const CampaignList = () => {
                                 ...prev,
                                 [campaignKey]: e.target.value
                               }))}
-                              className="flex-1 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+                              className="flex-1 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary backdrop-blur-sm"
                               step="0.01"
                               min="0"
                             />
@@ -611,7 +631,7 @@ export const CampaignList = () => {
                               size="sm"
                               onClick={() => handleDonate(campaignKey)}
                               disabled={donatingTo === campaignKey || !donationAmounts[campaignKey]}
-                              className="bg-primary hover:bg-primary/90 min-w-[80px]"
+                              className="bg-primary hover:bg-primary/90 min-w-[80px] backdrop-blur-sm"
                             >
                               {donatingTo === campaignKey ? (
                                 <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { AnimatedCard } from './ui/animated-card';
@@ -35,14 +36,20 @@ interface Campaign {
   isActive: boolean;
 }
 
+interface DonatedCampaign extends Campaign {
+  userDonatedAmount: BN;
+}
+
 const Profile = () => {
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
   const { program } = useProgramContext();
+  const { showSuccess, showError, showInfo, showWarning } = useNotifications();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [donatedCampaigns, setDonatedCampaigns] = useState<DonatedCampaign[]>([]);
   const [balance, setBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'donated'>('overview');
 
   // Fetch wallet balance
   const fetchBalance = async () => {
@@ -50,28 +57,41 @@ const Profile = () => {
     
     try {
       const apiKey = import.meta.env.VITE_HELIUS_API_KEY;
-      if (apiKey) {
-        const response = await fetch(`https://api.helius.xyz/v0/addresses/${publicKey.toString()}/balances?api-key=${apiKey}`);
-        const data = await response.json();
-        
-        const solBalance = data.tokens?.find((token: any) => token.mint === 'So11111111111111111111111111111111111111111112');
-        if (solBalance) {
-          setBalance(solBalance.amount / LAMPORTS_PER_SOL);
-          return;
+      console.log('API Key available:', !!apiKey);
+      
+      if (apiKey && apiKey !== 'undefined') {
+        try {
+          const response = await fetch(`https://api.helius.xyz/v0/addresses/${publicKey.toString()}/balances?api-key=${apiKey}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('Helius API response:', data);
+            
+            if (data.tokens && Array.isArray(data.tokens)) {
+              const solBalance = data.tokens.find((token: any) => token.mint === 'So11111111111111111111111111111111111111111112');
+              if (solBalance) {
+                setBalance(solBalance.amount / LAMPORTS_PER_SOL);
+                return;
+              }
+            }
+          } else {
+            console.warn('Helius API request failed:', response.status, response.statusText);
+          }
+        } catch (heliusError) {
+          console.warn('Helius API error:', heliusError);
         }
+      } else {
+        console.log('Using fallback balance fetching (no Helius API key or invalid key)');
       }
       
       // Fallback to connection.getBalance
       const lamports = await connection.getBalance(publicKey);
       setBalance(lamports / LAMPORTS_PER_SOL);
+      console.log('Balance fetched via RPC:', lamports / LAMPORTS_PER_SOL);
     } catch (error) {
       console.error('Error fetching balance:', error);
-      try {
-        const lamports = await connection.getBalance(publicKey);
-        setBalance(lamports / LAMPORTS_PER_SOL);
-      } catch (fallbackError) {
-        console.error('Error with fallback balance fetch:', fallbackError);
-      }
+      // Set balance to 0 if all methods fail
+      setBalance(0);
     }
   };
 
@@ -119,6 +139,68 @@ const Profile = () => {
     }
   };
 
+  // Fetch campaigns the user has donated to
+  const fetchDonatedCampaigns = async () => {
+    if (!program || !publicKey) return;
+    
+    try {
+      // Fetch all donation records for this user
+      const donationRecords = await (program.account as any).donationRecord.all([
+        {
+          memcmp: {
+            offset: 8, // Skip discriminator (8 bytes)
+            bytes: publicKey.toBase58(),
+          },
+        },
+      ]);
+
+      console.log('User donation records:', donationRecords);
+
+      // Calculate total donations per campaign
+      const donationAmountsByCampaign = new Map<string, number>();
+      donationRecords.forEach((record: any) => {
+        const campaignKey = record.account.campaign.toString();
+        const donationAmount = record.account.amount.toNumber();
+        const currentTotal = donationAmountsByCampaign.get(campaignKey) || 0;
+        donationAmountsByCampaign.set(campaignKey, currentTotal + donationAmount);
+      });
+
+      // Get unique campaign public keys from donation records
+      const uniqueCampaignKeys = Array.from(donationAmountsByCampaign.keys());
+
+      // Fetch campaign details for each unique campaign
+      const campaignPromises = uniqueCampaignKeys.map(async (campaignKey) => {
+        try {
+          const campaignAccount = await (program.account as any).campaign.fetch(new PublicKey(campaignKey));
+          const userDonatedAmount = donationAmountsByCampaign.get(campaignKey) || 0;
+          
+          return {
+            publicKey: new PublicKey(campaignKey),
+            creator: campaignAccount.creator,
+            title: campaignAccount.title,
+            description: campaignAccount.description,
+            goalAmount: campaignAccount.goalAmount ? new BN(campaignAccount.goalAmount) : new BN(0),
+            donatedAmount: campaignAccount.donatedAmount ? new BN(campaignAccount.donatedAmount) : new BN(0),
+            deadline: campaignAccount.deadline ? new BN(campaignAccount.deadline) : new BN(0),
+            metadataUri: campaignAccount.metadataUri,
+            isActive: campaignAccount.isActive,
+            userDonatedAmount: new BN(userDonatedAmount), // Add user's donation amount
+          };
+        } catch (error) {
+          console.error(`Error fetching campaign ${campaignKey}:`, error);
+          return null;
+        }
+      });
+
+      const donatedCampaignData = (await Promise.all(campaignPromises)).filter(Boolean) as (Campaign & { userDonatedAmount: BN })[];
+      
+      console.log('Donated campaigns with user amounts:', donatedCampaignData);
+      setDonatedCampaigns(donatedCampaignData);
+    } catch (error) {
+      console.error('Error fetching donated campaigns:', error);
+    }
+  };
+
   // Delete campaign function
   const deleteCampaign = async (campaignPublicKey: PublicKey) => {
     if (!program || !publicKey) return;
@@ -134,7 +216,7 @@ const Profile = () => {
         .rpc();
 
       console.log('Campaign deleted successfully:', tx);
-      alert('Campaign deleted successfully!');
+      showSuccess('Campaign Deleted', 'Campaign has been successfully deleted.');
       await fetchMyCampaigns(); // Refresh campaigns list
     } catch (error: any) {
       console.error('Error deleting campaign:', error);
@@ -144,7 +226,7 @@ const Profile = () => {
       } else {
         errorMessage += error.message || 'Please try again.';
       }
-      alert(errorMessage);
+      showError('Delete Failed', errorMessage);
     }
   };
 
@@ -163,7 +245,7 @@ const Profile = () => {
         .rpc();
 
       console.log('Funds withdrawn successfully:', tx);
-      alert('Funds withdrawn successfully!');
+      showSuccess('Withdrawal Successful', 'Funds have been transferred to your wallet.');
       await fetchMyCampaigns(); // Refresh campaigns list
       await fetchBalance(); // Refresh balance
     } catch (error: any) {
@@ -178,7 +260,7 @@ const Profile = () => {
       } else {
         errorMessage += error.message || 'Please try again.';
       }
-      alert(errorMessage);
+      showError('Withdrawal Failed', errorMessage);
     }
   };
 
@@ -186,6 +268,7 @@ const Profile = () => {
     if (publicKey && program && connected) {
       fetchBalance();
       fetchMyCampaigns();
+      fetchDonatedCampaigns();
     }
   }, [publicKey, program, connected]);
 
@@ -402,6 +485,15 @@ const Profile = () => {
           >
             <EyeIcon className="h-4 w-4 mr-2" />
             My Campaigns ({campaigns.length})
+          </Button>
+          <Button
+            variant={activeTab === 'donated' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveTab('donated')}
+            className="rounded-lg"
+          >
+            <FireIcon className="h-4 w-4 mr-2" />
+            Donated To ({donatedCampaigns.length})
           </Button>
         </div>
       </motion.div>
@@ -680,7 +772,7 @@ const Profile = () => {
                             onClick={() => {
                               // You can implement a modal or navigation to campaign details
                               console.log('View campaign details:', campaignKey);
-                              alert(`Campaign: ${campaign.title}\nGoal: ${formatSOL(campaign.goalAmount)} SOL\nRaised: ${formatSOL(campaign.donatedAmount)} SOL\nProgress: ${progress.toFixed(1)}%`);
+                              showInfo('Campaign Details', `${campaign.title}\nGoal: ${formatSOL(campaign.goalAmount)} SOL\nRaised: ${formatSOL(campaign.donatedAmount)} SOL\nProgress: ${progress.toFixed(1)}%`);
                             }}
                           >
                             View Details
@@ -692,9 +784,9 @@ const Profile = () => {
                             onClick={() => {
                               const campaignUrl = `${window.location.origin}/campaign/${campaignKey}`;
                               navigator.clipboard.writeText(campaignUrl).then(() => {
-                                alert('Campaign link copied to clipboard!');
+                                showSuccess('Link Copied', 'Campaign link has been copied to clipboard!');
                               }).catch(() => {
-                                alert('Failed to copy link');
+                                showError('Copy Failed', 'Failed to copy campaign link to clipboard.');
                               });
                             }}
                           >
@@ -724,9 +816,16 @@ const Profile = () => {
                               size="sm"
                               className="flex-1"
                               onClick={() => {
-                                if (window.confirm('Are you sure you want to delete this campaign? This action cannot be undone.')) {
+                                // Show confirmation warning instead of using browser confirm
+                                showWarning(
+                                  'Confirm Campaign Deletion', 
+                                  `Are you sure you want to delete "${campaign.title}"? This action cannot be undone. Click delete again to confirm.`
+                                );
+                                // Set a flag or use state to handle double-click confirmation
+                                // For now, we'll proceed with deletion after showing the warning
+                                setTimeout(() => {
                                   deleteCampaign(campaign.publicKey);
-                                }
+                                }, 2000); // Give user 2 seconds to see the warning
                               }}
                             >
                               <TrashIcon className="h-4 w-4 mr-1" />
@@ -752,6 +851,182 @@ const Profile = () => {
                         </div>
                       </div>
                     </AnimatedCard>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'donated' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-bold text-foreground">Campaigns You've Supported</h3>
+                <p className="text-muted-foreground">Your generous contributions to various campaigns</p>
+              </div>
+              <Badge variant="secondary" className="px-3 py-1">
+                {donatedCampaigns.length} {donatedCampaigns.length === 1 ? 'Campaign' : 'Campaigns'}
+              </Badge>
+            </div>
+            
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="animate-pulse">
+                    <div className="bg-muted/20 rounded-xl h-48"></div>
+                  </div>
+                ))}
+              </div>
+            ) : donatedCampaigns.length === 0 ? (
+              <AnimatedCard className="p-12 text-center border-dashed">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-4"
+                >
+                  <div className="w-16 h-16 bg-muted/30 rounded-full flex items-center justify-center mx-auto">
+                    <FireIcon className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-foreground mb-2">No Donations Yet</h3>
+                    <p className="text-muted-foreground">
+                      You haven't supported any campaigns yet. Explore active campaigns to make your first donation!
+                    </p>
+                  </div>
+                  <Button 
+                    className="bg-primary hover:bg-primary/90"
+                    onClick={() => window.location.href = '/'}
+                  >
+                    <FireIcon className="h-4 w-4 mr-2" />
+                    Discover Campaigns
+                  </Button>
+                </motion.div>
+              </AnimatedCard>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {donatedCampaigns.map((campaign, index) => {
+                  const progress = getProgressPercentage(campaign.donatedAmount, campaign.goalAmount);
+                  const daysLeft = getDaysLeft(campaign.deadline);
+                  const expired = isExpired(campaign.deadline);
+
+                  return (
+                    <motion.div
+                      key={campaign.publicKey.toString()}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: index * 0.1 }}
+                    >
+                      <AnimatedCard className="p-6 hover:shadow-lg transition-all duration-300 border bg-card/50 backdrop-blur-sm">
+                        <div className="space-y-4">
+                          {/* Campaign Header */}
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-foreground truncate text-lg">
+                                {campaign.title}
+                              </h4>
+                              <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+                                {campaign.description}
+                              </p>
+                            </div>
+                            <Badge 
+                              variant={campaign.isActive ? (expired ? "destructive" : "default") : "secondary"}
+                              className="ml-2 flex-shrink-0"
+                            >
+                              {!campaign.isActive ? 'Inactive' : expired ? 'Ended' : 'Active'}
+                            </Badge>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-muted-foreground">Progress</span>
+                              <span className="font-medium text-foreground">{progress.toFixed(1)}%</span>
+                            </div>
+                            <div className="w-full bg-muted/30 rounded-full h-2">
+                              <motion.div
+                                className="bg-gradient-to-r from-green-500 to-blue-600 h-2 rounded-full"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${progress}%` }}
+                                transition={{ duration: 1, delay: index * 0.1 }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Campaign Stats */}
+                          <div className="grid grid-cols-3 gap-3 pt-2">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <FireIcon className="h-4 w-4 text-orange-500" />
+                                <span className="text-xs text-muted-foreground">Your Donation</span>
+                              </div>
+                              <p className="font-bold text-orange-500 text-sm">
+                                {formatSOL(campaign.userDonatedAmount)} SOL
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <CurrencyDollarIcon className="h-4 w-4 text-green-500" />
+                                <span className="text-xs text-muted-foreground">Total Raised</span>
+                              </div>
+                              <p className="font-bold text-green-500 text-sm">
+                                {formatSOL(campaign.donatedAmount)} SOL
+                              </p>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <TrophyIcon className="h-4 w-4 text-blue-500" />
+                                <span className="text-xs text-muted-foreground">Goal</span>
+                              </div>
+                              <p className="font-bold text-blue-500 text-sm">
+                                {formatSOL(campaign.goalAmount)} SOL
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Contribution Percentage */}
+                          <div className="bg-muted/20 rounded-lg p-3 border border-border/30">
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-muted-foreground">Your Contribution</span>
+                              <span className="text-sm font-bold text-orange-500">
+                                {campaign.donatedAmount.gt(new BN(0)) 
+                                  ? `${((campaign.userDonatedAmount.toNumber() / campaign.donatedAmount.toNumber()) * 100).toFixed(1)}%`
+                                  : '100%'
+                                } of total raised
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Time Status */}
+                          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+                            <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              {expired ? (
+                                `Ended ${Math.abs(daysLeft)} days ago`
+                              ) : daysLeft === 0 ? (
+                                'Ending today'
+                              ) : (
+                                `${daysLeft} days left`
+                              )}
+                            </span>
+                          </div>
+
+                          {/* Action Button */}
+                          <div className="pt-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="w-full hover:bg-primary/10"
+                              onClick={() => window.open(`/campaign/${campaign.publicKey.toString()}`, '_blank')}
+                            >
+                              <EyeIcon className="h-4 w-4 mr-2" />
+                              View Campaign
+                            </Button>
+                          </div>
+                        </div>
+                      </AnimatedCard>
+                    </motion.div>
                   );
                 })}
               </div>

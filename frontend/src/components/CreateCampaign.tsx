@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { useProgramContext } from '../contexts/ProgramContext';
+import { useNotifications } from '../contexts/NotificationContext';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { Button } from '../components/ui/button';
@@ -23,6 +24,7 @@ interface CreateCampaignProps {
 export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
   const { connected } = useWallet();
   const { program } = useProgramContext();
+  const { showSuccess, showError, showWarning } = useNotifications();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   
@@ -34,19 +36,91 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
     metadataUri: '',
   });
 
+  // Helper function to count bytes
+  const getByteLength = (str: string) => Buffer.from(str, 'utf8').length;
+
+  // Helper function to check if text is within limits
+  const isWithinLimits = (text: string, maxBytes: number) => getByteLength(text) <= maxBytes;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!program || !connected) return;
 
     setLoading(true);
     try {
-      // Validate title byte length for PDA seed (Solana limit is 32 bytes per seed)
+      // Validate input lengths according to Rust program constraints
       const titleBytes = Buffer.from(formData.title, 'utf8');
-      if (titleBytes.length > 32) {
-        alert(`Campaign title is too long (${titleBytes.length} bytes). Please use a shorter title (max 32 bytes).`);
+      const descriptionBytes = Buffer.from(formData.description, 'utf8');
+      const metadataUriBytes = Buffer.from(formData.metadataUri, 'utf8');
+
+      // Check individual field limits
+      if (titleBytes.length > 200) {
+        showError('Title Too Long', `Campaign title is too long (${titleBytes.length} bytes). Maximum: 200 bytes.`);
         setLoading(false);
         return;
       }
+
+      if (descriptionBytes.length > 1000) {
+        showError('Description Too Long', `Campaign description is too long (${descriptionBytes.length} bytes). Maximum: 1000 bytes.`);
+        setLoading(false);
+        return;
+      }
+
+      if (metadataUriBytes.length > 200) {
+        showError('URL Too Long', `Metadata URI is too long (${metadataUriBytes.length} bytes). Maximum: 200 bytes.`);
+        setLoading(false);
+        return;
+      }
+
+      // Additional validation for PDA seed (title must be <= 32 bytes for PDA)
+      if (titleBytes.length > 32) {
+        showError('Title Too Long', `Campaign title is too long for blockchain storage (${titleBytes.length} bytes). Please use a shorter title (max 32 bytes for PDA seed).`);
+        setLoading(false);
+        return;
+      }
+
+      // Validate other required fields
+      if (!formData.title.trim()) {
+        showWarning('Missing Title', 'Campaign title is required.');
+        setLoading(false);
+        return;
+      }
+
+      if (!formData.description.trim()) {
+        showWarning('Missing Description', 'Campaign description is required.');
+        setLoading(false);
+        return;
+      }
+
+      if (!formData.goalAmount || parseFloat(formData.goalAmount) <= 0) {
+        showWarning('Invalid Goal', 'Please enter a valid goal amount.');
+        setLoading(false);
+        return;
+      }
+
+      if (!formData.deadline) {
+        showWarning('Missing Deadline', 'Please select a deadline.');
+        setLoading(false);
+        return;
+      }
+
+      const deadlineDate = new Date(formData.deadline);
+      if (deadlineDate <= new Date()) {
+        showWarning('Invalid Deadline', 'Deadline must be in the future.');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Creating campaign with data:', {
+        title: formData.title,
+        titleBytes: titleBytes.length,
+        description: formData.description.substring(0, 100) + '...',
+        descriptionBytes: descriptionBytes.length,
+        goalAmount: formData.goalAmount,
+        deadline: formData.deadline,
+        metadataUri: formData.metadataUri,
+        metadataUriBytes: metadataUriBytes.length,
+      });
 
       const goalAmountLamports = new BN(parseFloat(formData.goalAmount) * 1e9); // Convert SOL to lamports
       const deadlineTimestamp = new BN(Math.floor(new Date(formData.deadline).getTime() / 1000));
@@ -74,6 +148,7 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
 
       console.log('Campaign created with signature:', tx);
       
+      showSuccess('Campaign Created!', `${formData.title} has been successfully created and deployed to the blockchain.`);
       setSuccess(true);
       setTimeout(() => {
         // Reset form
@@ -90,7 +165,7 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
       
     } catch (error) {
       console.error('Error creating campaign:', error);
-      alert('Failed to create campaign. Please try again.');
+      showError('Campaign Creation Failed', 'Failed to create campaign. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -217,12 +292,17 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
               <div className="flex justify-between items-center text-xs">
                 <p className="text-muted-foreground">Make it catchy and descriptive</p>
                 <div className="flex space-x-2">
-                  <p className="text-muted-foreground">{formData.title.length}/200</p>
-                  <p className={`${Buffer.from(formData.title, 'utf8').length > 32 ? 'text-red-500' : 'text-muted-foreground'}`}>
-                    ({Buffer.from(formData.title, 'utf8').length}/32 bytes)
+                  <p className={`${formData.title.length > 200 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                    {formData.title.length}/200 chars
+                  </p>
+                  <p className={`${getByteLength(formData.title) > 32 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                    ({getByteLength(formData.title)}/32 bytes)
                   </p>
                 </div>
               </div>
+              {getByteLength(formData.title) > 32 && (
+                <p className="text-xs text-red-500">⚠️ Title too long for blockchain storage. Please shorten.</p>
+              )}
             </div>
 
             {/* Description */}
@@ -243,8 +323,13 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
               />
               <div className="flex justify-between items-center text-xs">
                 <p className="text-muted-foreground">Explain your project in detail</p>
-                <p className="text-muted-foreground">{formData.description.length}/1000</p>
+                <p className={`${getByteLength(formData.description) > 1000 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                  {formData.description.length} chars ({getByteLength(formData.description)}/1000 bytes)
+                </p>
               </div>
+              {getByteLength(formData.description) > 1000 && (
+                <p className="text-xs text-red-500">⚠️ Description too long. Please shorten to fit blockchain limits.</p>
+              )}
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
