@@ -89,6 +89,34 @@ export type Solado = {
       ]
     },
     {
+      "name": "deleteCampaign",
+      "discriminator": [
+        223,
+        105,
+        48,
+        131,
+        88,
+        27,
+        249,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "donate",
       "discriminator": [
         121,
@@ -277,6 +305,19 @@ export type Solado = {
       ]
     },
     {
+      "name": "campaignDeleted",
+      "discriminator": [
+        93,
+        211,
+        150,
+        140,
+        37,
+        45,
+        170,
+        238
+      ]
+    },
+    {
       "name": "donationMade",
       "discriminator": [
         181,
@@ -396,6 +437,11 @@ export type Solado = {
       "code": 6015,
       "name": "underflow",
       "msg": "Arithmetic underflow"
+    },
+    {
+      "code": 6016,
+      "name": "campaignHasDonations",
+      "msg": "Campaign has donations and cannot be deleted"
     }
   ],
   "types": [
@@ -467,6 +513,22 @@ export type Solado = {
           {
             "name": "deadline",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "campaignDeleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
           }
         ]
       }

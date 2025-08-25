@@ -17,7 +17,10 @@ import {
   ShareIcon,
   EyeIcon,
   ClockIcon,
-  CurrencyDollarIcon
+  CurrencyDollarIcon,
+  TrashIcon,
+  BanknotesIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 interface Campaign {
@@ -85,17 +88,97 @@ const Profile = () => {
           creator: account.account.creator,
           title: account.account.title,
           description: account.account.description,
-          goalAmount: account.account.goal_amount ? new BN(account.account.goal_amount) : new BN(0),
-          donatedAmount: account.account.donated_amount ? new BN(account.account.donated_amount) : new BN(0),
+          goalAmount: account.account.goalAmount ? new BN(account.account.goalAmount) : new BN(0),
+          donatedAmount: account.account.donatedAmount ? new BN(account.account.donatedAmount) : new BN(0),
           deadline: account.account.deadline ? new BN(account.account.deadline) : new BN(0),
-          metadataUri: account.account.metadata_uri,
-          isActive: account.account.is_active,
+          metadataUri: account.account.metadataUri,
+          isActive: account.account.isActive,
         }));
+      
+      // Debug log to see campaign data
+      console.log('My campaigns:', myCampaignsData);
+      myCampaignsData.forEach((campaign: Campaign, index: number) => {
+        console.log(`Campaign ${index + 1}:`, {
+          title: campaign.title,
+          goalAmount: formatSOL(campaign.goalAmount),
+          donatedAmount: formatSOL(campaign.donatedAmount),
+          isActive: campaign.isActive,
+          deadline: new Date(campaign.deadline.toNumber() * 1000).toLocaleDateString(),
+          expired: isExpired(campaign.deadline),
+          progress: getProgressPercentage(campaign.donatedAmount, campaign.goalAmount),
+          canDelete: campaign.donatedAmount.isZero(),
+          canWithdraw: getProgressPercentage(campaign.donatedAmount, campaign.goalAmount) >= 100 && isExpired(campaign.deadline) && campaign.isActive
+        });
+      });
+      
       setCampaigns(myCampaignsData);
     } catch (error) {
       console.error('Error fetching my campaigns:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Delete campaign function
+  const deleteCampaign = async (campaignPublicKey: PublicKey) => {
+    if (!program || !publicKey) return;
+    
+    try {
+      console.log('Attempting to delete campaign:', campaignPublicKey.toString());
+      
+      const tx = await (program.methods as any).deleteCampaign()
+        .accounts({
+          campaign: campaignPublicKey,
+          creator: publicKey,
+        })
+        .rpc();
+
+      console.log('Campaign deleted successfully:', tx);
+      alert('Campaign deleted successfully!');
+      await fetchMyCampaigns(); // Refresh campaigns list
+    } catch (error: any) {
+      console.error('Error deleting campaign:', error);
+      let errorMessage = 'Failed to delete campaign. ';
+      if (error.message?.includes('CampaignHasDonations')) {
+        errorMessage += 'Campaign has donations and cannot be deleted.';
+      } else {
+        errorMessage += error.message || 'Please try again.';
+      }
+      alert(errorMessage);
+    }
+  };
+
+  // Withdraw funds function
+  const withdrawFunds = async (campaignPublicKey: PublicKey) => {
+    if (!program || !publicKey) return;
+    
+    try {
+      console.log('Attempting to withdraw funds from campaign:', campaignPublicKey.toString());
+      
+      const tx = await (program.methods as any).withdraw()
+        .accounts({
+          campaign: campaignPublicKey,
+          creator: publicKey,
+        })
+        .rpc();
+
+      console.log('Funds withdrawn successfully:', tx);
+      alert('Funds withdrawn successfully!');
+      await fetchMyCampaigns(); // Refresh campaigns list
+      await fetchBalance(); // Refresh balance
+    } catch (error: any) {
+      console.error('Error withdrawing funds:', error);
+      let errorMessage = 'Failed to withdraw funds. ';
+      if (error.message?.includes('GoalNotReached')) {
+        errorMessage += 'Campaign goal was not reached.';
+      } else if (error.message?.includes('CampaignNotExpired')) {
+        errorMessage += 'Campaign deadline has not passed yet.';
+      } else if (error.message?.includes('CampaignNotActive')) {
+        errorMessage += 'Campaign is no longer active.';
+      } else {
+        errorMessage += error.message || 'Please try again.';
+      }
+      alert(errorMessage);
     }
   };
 
@@ -453,6 +536,48 @@ const Profile = () => {
                 </div>
               )}
             </AnimatedCard>
+
+            {/* Withdrawal Available */}
+            {campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100 && isExpired(c.deadline) && c.isActive).length > 0 && (
+              <AnimatedCard className="p-8 border-green-200 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20">
+                <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
+                  <BanknotesIcon className="h-6 w-6 text-green-500" />
+                  Funds Ready for Withdrawal
+                </h3>
+                
+                <div className="space-y-4">
+                  {campaigns
+                    .filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100 && isExpired(c.deadline) && c.isActive)
+                    .map((campaign) => (
+                    <div key={campaign.publicKey.toString()} className="flex items-center justify-between p-4 bg-white/50 dark:bg-gray-900/50 rounded-xl border border-green-200 dark:border-green-800">
+                      <div className="flex-1">
+                        <div className="font-medium text-foreground">{campaign.title}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {formatSOL(campaign.donatedAmount)} SOL available for withdrawal
+                        </div>
+                      </div>
+                      <Button 
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => withdrawFunds(campaign.publicKey)}
+                      >
+                        <BanknotesIcon className="h-4 w-4 mr-2" />
+                        Withdraw Funds
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                  <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300">
+                    <ExclamationTriangleIcon className="h-5 w-5" />
+                    <span className="text-sm font-medium">Important:</span>
+                  </div>
+                  <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1">
+                    You can only withdraw funds from campaigns that have reached their goal and passed their deadline.
+                  </p>
+                </div>
+              </AnimatedCard>
+            )}
           </div>
         )}
 
@@ -488,11 +613,27 @@ const Profile = () => {
                         </Badge>
                       </div>
 
-                      {/* Campaign Header */}
+                      {/* Campaign Header with Image Support */}
                       <div className="h-48 bg-gradient-to-br from-primary/20 via-accent/20 to-primary/20 relative overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
+                        {/* Campaign Image */}
+                        {campaign.metadataUri && (
+                          <img
+                            src={campaign.metadataUri}
+                            alt={campaign.title}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            onError={(e) => {
+                              // Fallback to gradient background if image fails to load
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        )}
+                        
+                        {/* Overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                        
+                        {/* Campaign Info */}
                         <div className="absolute bottom-4 left-4 right-16">
-                          <h3 className="text-xl font-bold text-white mb-1 line-clamp-2">{campaign.title}</h3>
+                          <h3 className="text-xl font-bold text-white mb-1 line-clamp-2 drop-shadow-lg">{campaign.title}</h3>
                         </div>
                       </div>
 
@@ -532,18 +673,82 @@ const Profile = () => {
 
                         {/* Actions */}
                         <div className="flex gap-2 pt-2">
-                          <Button variant="outline" size="sm" className="flex-1">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="flex-1"
+                            onClick={() => {
+                              // You can implement a modal or navigation to campaign details
+                              console.log('View campaign details:', campaignKey);
+                              alert(`Campaign: ${campaign.title}\nGoal: ${formatSOL(campaign.goalAmount)} SOL\nRaised: ${formatSOL(campaign.donatedAmount)} SOL\nProgress: ${progress.toFixed(1)}%`);
+                            }}
+                          >
                             View Details
                           </Button>
                           <Button 
                             variant="outline" 
                             size="sm" 
                             className="flex-1"
-                            onClick={() => navigator.clipboard.writeText(`${window.location.origin}/campaign/${campaignKey}`)}
+                            onClick={() => {
+                              const campaignUrl = `${window.location.origin}/campaign/${campaignKey}`;
+                              navigator.clipboard.writeText(campaignUrl).then(() => {
+                                alert('Campaign link copied to clipboard!');
+                              }).catch(() => {
+                                alert('Failed to copy link');
+                              });
+                            }}
                           >
                             <ShareIcon className="h-4 w-4 mr-1" />
                             Share
                           </Button>
+                        </div>
+
+                        {/* Additional Action Buttons Row */}
+                        <div className="flex gap-2 pt-2">
+                          {/* Withdraw button - only show if goal reached and deadline passed */}
+                          {progress >= 100 && expired && campaign.isActive && (
+                            <Button 
+                              size="sm" 
+                              className="bg-green-600 hover:bg-green-700 flex-1"
+                              onClick={() => withdrawFunds(campaign.publicKey)}
+                            >
+                              <BanknotesIcon className="h-4 w-4 mr-1" />
+                              Withdraw Funds
+                            </Button>
+                          )}
+                          
+                          {/* Delete button - only show if no donations */}
+                          {campaign.donatedAmount.isZero() && (
+                            <Button 
+                              variant="destructive" 
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => {
+                                if (window.confirm('Are you sure you want to delete this campaign? This action cannot be undone.')) {
+                                  deleteCampaign(campaign.publicKey);
+                                }
+                              }}
+                            >
+                              <TrashIcon className="h-4 w-4 mr-1" />
+                              Delete Campaign
+                            </Button>
+                          )}
+                          
+                          {/* Show campaign status info when no special actions available */}
+                          {!campaign.donatedAmount.isZero() && !(progress >= 100 && expired && campaign.isActive) && (
+                            <div className="text-xs text-muted-foreground text-center flex-1 py-2">
+                              {campaign.donatedAmount.isZero() 
+                                ? "No donations yet - can delete"
+                                : progress >= 100 && expired 
+                                  ? campaign.isActive 
+                                    ? "Ready for withdrawal" 
+                                    : "Funds already withdrawn"
+                                  : expired 
+                                    ? "Campaign ended - goal not reached"
+                                    : "Campaign in progress"
+                              }
+                            </div>
+                          )}
                         </div>
                       </div>
                     </AnimatedCard>

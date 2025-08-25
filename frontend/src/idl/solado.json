@@ -83,6 +83,34 @@
       ]
     },
     {
+      "name": "delete_campaign",
+      "discriminator": [
+        223,
+        105,
+        48,
+        131,
+        88,
+        27,
+        249,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "campaign",
+          "writable": true
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "campaign"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "donate",
       "discriminator": [
         121,
@@ -271,6 +299,19 @@
       ]
     },
     {
+      "name": "CampaignDeleted",
+      "discriminator": [
+        93,
+        211,
+        150,
+        140,
+        37,
+        45,
+        170,
+        238
+      ]
+    },
+    {
       "name": "DonationMade",
       "discriminator": [
         181,
@@ -390,6 +431,11 @@
       "code": 6015,
       "name": "Underflow",
       "msg": "Arithmetic underflow"
+    },
+    {
+      "code": 6016,
+      "name": "CampaignHasDonations",
+      "msg": "Campaign has donations and cannot be deleted"
     }
   ],
   "types": [
@@ -461,6 +507,22 @@
           {
             "name": "deadline",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CampaignDeleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "campaign",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
           }
         ]
       }

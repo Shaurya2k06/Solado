@@ -94,6 +94,24 @@ export const CampaignList = () => {
       setDonatingTo(campaignKey);
       const amountLamports = parseFloat(amount) * LAMPORTS_PER_SOL;
 
+      // First, let's verify the campaign exists and is valid
+      try {
+        const campaignAccount = await (program.account as any).campaign.fetch(new PublicKey(campaignKey));
+        console.log('Campaign account:', campaignAccount);
+        
+        // Check if campaign is active and not expired
+        const now = Math.floor(Date.now() / 1000);
+        if (!campaignAccount.isActive) {
+          throw new Error('Campaign is not active');
+        }
+        if (campaignAccount.deadline.toNumber() < now) {
+          throw new Error('Campaign has expired');
+        }
+      } catch (fetchError: any) {
+        console.error('Failed to fetch campaign:', fetchError);
+        throw new Error(`Invalid campaign: ${fetchError.message}`);
+      }
+
       const [donationRecordPda] = PublicKey.findProgramAddressSync(
         [
           Buffer.from('donation'),
@@ -103,7 +121,33 @@ export const CampaignList = () => {
         program.programId
       );
 
-      await program.methods
+      console.log('Donation details:', {
+        campaignKey,
+        donor: publicKey.toString(),
+        donationRecordPda: donationRecordPda.toString(),
+        amount: amountLamports,
+        programId: program.programId.toString()
+      });
+
+      // First, let's try to simulate the transaction
+      try {
+        const simulationResult = await program.methods
+          .donate(new BN(amountLamports))
+          .accounts({
+            campaign: new PublicKey(campaignKey),
+            donor: publicKey,
+            donationRecord: donationRecordPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .simulate();
+        
+        console.log('Simulation successful:', simulationResult);
+      } catch (simError: any) {
+        console.error('Simulation failed:', simError);
+        throw new Error(`Transaction simulation failed: ${simError.message}`);
+      }
+
+      const tx = await program.methods
         .donate(new BN(amountLamports))
         .accounts({
           campaign: new PublicKey(campaignKey),
@@ -113,13 +157,45 @@ export const CampaignList = () => {
         })
         .rpc();
 
+      console.log('Donation transaction:', tx);
+
       // Clear donation amount and refresh campaigns
       setDonationAmounts(prev => ({ ...prev, [campaignKey]: '' }));
       await fetchCampaigns();
       alert('Donation successful!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Donation failed:', error);
-      alert('Donation failed. Please try again.');
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error cause:', error.cause);
+      console.error('Error stack:', error.stack);
+      if (error.logs) {
+        console.error('Transaction logs:', error.logs);
+      }
+      if (error.transactionLogs) {
+        console.error('Transaction logs:', error.transactionLogs);
+      }
+      
+      let errorMessage = 'Donation failed. ';
+      
+      // Check for common error patterns
+      if (error.message?.includes('insufficient funds') || error.message?.includes('InsufficientFunds')) {
+        errorMessage += 'Insufficient funds in wallet.';
+      } else if (error.message?.includes('InvalidAccount')) {
+        errorMessage += 'Invalid account structure.';
+      } else if (error.message?.includes('ProgramError')) {
+        errorMessage += 'Program error: ' + (error.logs?.join(' ') || 'Unknown program error');
+      } else if (error.message?.includes('expired') || error.message?.includes('CampaignExpired')) {
+        errorMessage += 'Campaign has expired.';
+      } else if (error.message?.includes('not active') || error.message?.includes('CampaignNotActive')) {
+        errorMessage += 'Campaign is not active.';
+      } else if (error.message?.includes('SendTransaction')) {
+        errorMessage += 'Transaction failed to send. Please check your network connection and wallet.';
+      } else {
+        errorMessage += `Unknown error: ${error.message || 'Please try again.'}`;
+      }
+      
+      alert(errorMessage);
     } finally {
       setDonatingTo(null);
     }
@@ -147,6 +223,14 @@ export const CampaignList = () => {
         program.programId
       );
 
+      console.log('Modal donation details:', {
+        campaignKey: selectedCampaign.publicKey.toString(),
+        donor: publicKey.toString(),
+        donationRecordPda: donationRecordPda.toString(),
+        amount: amountLamports,
+        programId: program.programId.toString()
+      });
+
       await program.methods
         .donate(new BN(amountLamports))
         .accounts({
@@ -162,9 +246,22 @@ export const CampaignList = () => {
       await fetchCampaigns();
       alert('Donation successful!');
       setSelectedCampaign(null); // Close modal
-    } catch (error) {
+    } catch (error: any) {
       console.error('Donation failed:', error);
-      alert('Donation failed. Please try again.');
+      console.error('Error details:', error.message, error.logs);
+      
+      let errorMessage = 'Donation failed. ';
+      if (error.message?.includes('insufficient funds')) {
+        errorMessage += 'Insufficient funds in wallet.';
+      } else if (error.message?.includes('InvalidAccount')) {
+        errorMessage += 'Invalid account structure.';
+      } else if (error.message?.includes('ProgramError')) {
+        errorMessage += 'Program error: ' + (error.logs?.join(' ') || 'Unknown program error');
+      } else {
+        errorMessage += 'Please check your wallet connection and try again.';
+      }
+      
+      alert(errorMessage);
     } finally {
       setDonatingTo(null);
     }
