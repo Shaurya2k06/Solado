@@ -40,7 +40,6 @@ export const CreateCampaign = ({ onCampaignCreated }: CreateCampaignProps) => {
   const getByteLength = (str: string) => Buffer.from(str, 'utf8').length;
 
   // Helper function to check if text is within limits
-  const isWithinLimits = (text: string, maxBytes: number) => getByteLength(text) <= maxBytes;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

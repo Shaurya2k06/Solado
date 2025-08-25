@@ -13,7 +13,7 @@ import './App.css';
 
 // Component to handle campaign detail routing
 function CampaignDetailWrapper() {
-  const { campaignId } = useParams();
+  useParams();
   const { connected, publicKey } = useWallet();
 
   // If wallet is not connected, show landing page
