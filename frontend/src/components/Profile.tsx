@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { useProgramContext } from '../contexts/ProgramContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useAchievements, getUserAchievements } from '../contexts/AchievementContext';
 import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { BN } from '@coral-xyz/anchor';
 import { AnimatedCard } from './ui/animated-card';
@@ -25,6 +26,11 @@ import {
   BanknotesIcon,
   ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
+import FundingGraph from './FundingGraph';
+import PieChart from './charts/PieChart';
+import BarChart from './charts/BarChart';
+import StatsCard from './charts/StatsCard';
+import DonutChart from './charts/DonutChart';
 
 interface Campaign {
   publicKey: PublicKey;
@@ -47,11 +53,16 @@ const Profile = () => {
   const { connection } = useConnection();
   const { program } = useProgramContext();
   const { showSuccess, showError, showInfo, showWarning } = useNotifications();
+  const { checkAndShowAchievements } = useAchievements();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [donatedCampaigns, setDonatedCampaigns] = useState<DonatedCampaign[]>([]);
   const [balance, setBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'donated'>('overview');
+  const [fundingData, setFundingData] = useState<{ date: string; amount: number }[]>([]);
+  const [campaignFundingData, setCampaignFundingData] = useState<{ label: string; value: number; color: string }[]>([]);
+  const [donorStatsData, setDonorStatsData] = useState<{ label: string; value: number; color: string }[]>([]);
+  const [campaignStatusData, setCampaignStatusData] = useState<{ label: string; value: number; color: string }[]>([]);
 
   // Fetch wallet balance
   const fetchBalance = async () => {
@@ -266,13 +277,207 @@ const Profile = () => {
     }
   };
 
-  useEffect(() => {
-    if (publicKey && program && connected) {
-      fetchBalance();
-      fetchMyCampaigns();
-      fetchDonatedCampaigns();
+  // Generate funding data for last 7 days from donation records
+  const generateFundingData = async () => {
+    if (!program || !publicKey) {
+      return Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return { date: date.toISOString().split('T')[0], amount: 0 };
+      });
     }
-  }, [publicKey, program, connected]);
+
+    try {
+      // Get all campaigns created by this user
+      const userCampaigns = campaigns.map(c => c.publicKey.toString());
+      
+      if (userCampaigns.length === 0) {
+        return Array.from({ length: 7 }, (_, i) => {
+          const date = new Date();
+          date.setDate(date.getDate() - (6 - i));
+          return { date: date.toISOString().split('T')[0], amount: 0 };
+        });
+      }
+
+      // Fetch donation records for user's campaigns from the last 7 days
+      const sevenDaysAgo = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+      const allDonations = await Promise.all(
+        userCampaigns.map(async (campaignKey) => {
+          try {
+            const donationRecords = await (program.account as any).donationRecord.all([
+              {
+                memcmp: {
+                  offset: 8 + 32, // Skip discriminator (8) + donor (32) = campaign offset
+                  bytes: campaignKey,
+                },
+              },
+            ]);
+            
+            // Filter donations from last 7 days
+            return donationRecords
+              .filter((record: any) => record.account.timestamp.toNumber() >= sevenDaysAgo)
+              .map((record: any) => ({
+                amount: record.account.amount.toNumber() / LAMPORTS_PER_SOL,
+                timestamp: record.account.timestamp.toNumber() * 1000, // Convert to milliseconds
+                campaign: record.account.campaign.toString()
+              }));
+          } catch (error) {
+            console.warn(`Error fetching donations for campaign ${campaignKey}:`, error);
+            return [];
+          }
+        })
+      );
+
+      const flatDonations = allDonations.flat();
+      console.log('Funding data donations:', flatDonations);
+
+      // Group donations by date
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return date.toISOString().split('T')[0];
+      });
+
+      return last7Days.map(date => {
+        const dayStart = new Date(date).getTime();
+        const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+        
+        const dayDonations = flatDonations.filter(
+          d => d.timestamp >= dayStart && d.timestamp < dayEnd
+        );
+        
+        const totalAmount = dayDonations.reduce((sum, d) => sum + d.amount, 0);
+        
+        return {
+          date,
+          amount: Math.round(totalAmount * 100) / 100 // Round to 2 decimals
+        };
+      });
+    } catch (error) {
+      console.error('Error generating funding data:', error);
+      // Return empty data on error
+      return Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        return { date: date.toISOString().split('T')[0], amount: 0 };
+      });
+    }
+  };
+
+  // Generate pie chart data for funding by campaign
+  const generateCampaignFundingData = () => {
+    const colors = [
+      'hsl(142, 70%, 50%)', // Green
+      'hsl(221, 70%, 50%)', // Blue
+      'hsl(262, 70%, 50%)', // Purple
+      'hsl(25, 70%, 50%)',  // Orange
+      'hsl(346, 70%, 50%)', // Red
+      'hsl(191, 70%, 50%)', // Cyan
+    ];
+
+    return campaigns
+      .filter(c => c.donatedAmount.toNumber() > 0)
+      .map((campaign, index) => ({
+        label: campaign.title.length > 20 ? `${campaign.title.slice(0, 20)}...` : campaign.title,
+        value: campaign.donatedAmount.toNumber() / LAMPORTS_PER_SOL,
+        color: colors[index % colors.length]
+      }))
+      .sort((a, b) => b.value - a.value) // Sort by funding amount
+      .slice(0, 6); // Top 6 campaigns
+  };
+
+  // Generate donor stats data
+  const generateDonorStatsData = async () => {
+    if (!program || campaigns.length === 0) return [];
+
+    try {
+      const userCampaigns = campaigns.map(c => c.publicKey.toString());
+      const donorStats = new Map<string, number>();
+
+      // Fetch donation records for all user campaigns
+      const allDonations = await Promise.all(
+        userCampaigns.map(async (campaignKey) => {
+          try {
+            const donationRecords = await (program.account as any).donationRecord.all([
+              {
+                memcmp: {
+                  offset: 8 + 32, // Skip discriminator + donor = campaign offset
+                  bytes: campaignKey,
+                },
+              },
+            ]);
+            
+            return donationRecords.map((record: any) => ({
+              donor: record.account.donor.toString(),
+              amount: record.account.amount.toNumber() / LAMPORTS_PER_SOL,
+            }));
+          } catch (error) {
+            console.warn(`Error fetching donors for campaign ${campaignKey}:`, error);
+            return [];
+          }
+        })
+      );
+
+      // Aggregate donations by donor
+      allDonations.flat().forEach(donation => {
+        const current = donorStats.get(donation.donor) || 0;
+        donorStats.set(donation.donor, current + donation.amount);
+      });
+
+      // Convert to array and get top donors
+      return Array.from(donorStats.entries())
+        .map(([donor, amount]) => ({
+          label: `${donor.slice(0, 4)}...${donor.slice(-4)}`,
+          value: Math.round(amount * 100) / 100,
+          color: `hsl(${Math.abs(donor.charCodeAt(0) * donor.charCodeAt(1)) % 360}, 70%, 50%)`
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5); // Top 5 donors
+    } catch (error) {
+      console.error('Error generating donor stats:', error);
+      return [];
+    }
+  };
+
+  // Generate campaign status data for donut chart
+  const generateCampaignStatusData = () => {
+    const activeCampaigns = campaigns.filter(c => c.isActive && !isExpired(c.deadline));
+    const expiredCampaigns = campaigns.filter(c => isExpired(c.deadline));
+    const successfulCampaigns = campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+    const inactiveCampaigns = campaigns.filter(c => !c.isActive);
+
+    const statusData = [];
+    if (activeCampaigns.length > 0) {
+      statusData.push({
+        label: 'Active',
+        value: activeCampaigns.length,
+        color: 'hsl(142, 70%, 50%)' // Green
+      });
+    }
+    if (successfulCampaigns.length > 0) {
+      statusData.push({
+        label: 'Successful',
+        value: successfulCampaigns.length,
+        color: 'hsl(221, 70%, 50%)' // Blue
+      });
+    }
+    if (expiredCampaigns.length > 0) {
+      statusData.push({
+        label: 'Expired',
+        value: expiredCampaigns.length,
+        color: 'hsl(25, 70%, 50%)' // Orange
+      });
+    }
+    if (inactiveCampaigns.length > 0) {
+      statusData.push({
+        label: 'Inactive',
+        value: inactiveCampaigns.length,
+        color: 'hsl(262, 70%, 50%)' // Purple
+      });
+    }
+
+    return statusData;
+  };
 
   const formatSOL = (amount: BN) => {
     return (amount.toNumber() / LAMPORTS_PER_SOL).toFixed(2);
@@ -294,6 +499,59 @@ const Profile = () => {
     if (timeLeft <= 0) return 0;
     return Math.ceil(timeLeft / (24 * 60 * 60));
   };
+
+  useEffect(() => {
+    if (publicKey && program && connected) {
+      fetchBalance();
+      fetchMyCampaigns();
+      fetchDonatedCampaigns();
+    }
+  }, [publicKey, program, connected]);
+
+  // Check for achievements when campaigns data changes
+  useEffect(() => {
+    if (publicKey && campaigns.length >= 0) {
+      const totalRaised = campaigns.reduce((sum, c) => sum.add(c.donatedAmount), new BN(0));
+      const successfulCampaigns = campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+      
+      checkAndShowAchievements(publicKey.toString(), {
+        campaignCount: campaigns.length,
+        totalDonated: 0, // This would need donation data
+        totalRaised: totalRaised.toNumber() / LAMPORTS_PER_SOL,
+        successfulCampaigns: successfulCampaigns.length
+      });
+    }
+  }, [campaigns, publicKey, checkAndShowAchievements]);
+
+  // Fetch funding data when campaigns change
+  useEffect(() => {
+    const fetchAllChartData = async () => {
+      // Fetch funding graph data
+      const fundingGraphData = await generateFundingData();
+      setFundingData(fundingGraphData);
+      
+      // Generate campaign funding pie chart data
+      const campaignData = generateCampaignFundingData();
+      setCampaignFundingData(campaignData);
+      
+      // Generate campaign status donut chart data
+      const statusData = generateCampaignStatusData();
+      setCampaignStatusData(statusData);
+      
+      // Fetch donor stats data
+      try {
+        const donorData = await generateDonorStatsData();
+        setDonorStatsData(donorData);
+      } catch (error) {
+        console.error('Error fetching donor data:', error);
+        setDonorStatsData([]);
+      }
+    };
+    
+    if (campaigns.length >= 0) { // Fetch even with 0 campaigns to show empty state
+      fetchAllChartData();
+    }
+  }, [campaigns, program, publicKey]);
 
   if (!connected || !publicKey) {
     return (
@@ -335,6 +593,14 @@ const Profile = () => {
   const activeCampaigns = campaigns.filter(c => c.isActive && !isExpired(c.deadline));
   const totalRaised = campaigns.reduce((sum, c) => sum.add(c.donatedAmount), new BN(0));
   const successfulCampaigns = campaigns.filter(c => getProgressPercentage(c.donatedAmount, c.goalAmount) >= 100);
+  
+  // Get user achievements
+  const userAchievements = publicKey ? getUserAchievements(publicKey.toString(), {
+    campaignCount: campaigns.length,
+    totalDonated: 0, // This would need donation data
+    totalRaised: totalRaised.toNumber() / LAMPORTS_PER_SOL,
+    successfulCampaigns: successfulCampaigns.length
+  }) : [];
 
   return (
     <div className="space-y-8">
@@ -509,6 +775,85 @@ const Profile = () => {
       >
         {activeTab === 'overview' && (
           <div className="space-y-8">
+            {/* Funding Graph */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.1 }}
+            >
+              <FundingGraph data={fundingData} />
+            </motion.div>
+
+            {/* Quick Stats Cards */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+            >
+              <StatsCard
+                title="Average Donation"
+                value={`${campaigns.length > 0 ? (totalRaised.toNumber() / LAMPORTS_PER_SOL / Math.max(1, donorStatsData.length)).toFixed(2) : '0.00'} SOL`}
+                icon={<CurrencyDollarIcon className="h-5 w-5" />}
+                color="green"
+              />
+              <StatsCard
+                title="Success Rate"
+                value={`${campaigns.length > 0 ? Math.round((successfulCampaigns.length / campaigns.length) * 100) : 0}%`}
+                icon={<TrophyIcon className="h-5 w-5" />}
+                color="blue"
+              />
+              <StatsCard
+                title="Total Donors"
+                value={donorStatsData.length}
+                icon={<UserCircleIcon className="h-5 w-5" />}
+                color="purple"
+              />
+              <StatsCard
+                title="Avg. Campaign Duration"
+                value={`${campaigns.length > 0 ? Math.round(campaigns.reduce((sum, c) => sum + getDaysLeft(c.deadline), 0) / campaigns.length) : 0} days`}
+                icon={<CalendarIcon className="h-5 w-5" />}
+                color="orange"
+              />
+            </motion.div>
+
+            {/* Charts Grid */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-8"
+            >
+              {/* Campaign Funding Distribution */}
+              <AnimatedCard className="p-6">
+                <PieChart 
+                  data={campaignFundingData}
+                  title="Funding by Campaign"
+                  size={220}
+                />
+              </AnimatedCard>
+
+              {/* Top Donors */}
+              <AnimatedCard className="p-6">
+                <BarChart 
+                  data={donorStatsData}
+                  title="Top Donors"
+                  height={280}
+                  width={320}
+                  valueLabel="SOL Donated"
+                />
+              </AnimatedCard>
+
+              {/* Campaign Status */}
+              <AnimatedCard className="p-6">
+                <DonutChart 
+                  data={campaignStatusData}
+                  title="Campaign Status"
+                  size={200}
+                />
+              </AnimatedCard>
+            </motion.div>
+
             {/* Achievements */}
             <AnimatedCard className="p-8">
               <h3 className="text-2xl font-bold text-foreground mb-6 flex items-center gap-3">
@@ -517,80 +862,54 @@ const Profile = () => {
               </h3>
               
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className={`p-6 rounded-xl border transition-all ${
-                  campaigns.length > 0 
-                    ? 'bg-green-500/10 border-green-500/30 shadow-lg' 
-                    : 'bg-muted/20 border-border'
-                }`}>
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className={`p-3 rounded-lg ${
-                      campaigns.length > 0 ? 'bg-green-500/20' : 'bg-muted/20'
-                    }`}>
-                      <FireIcon className={`h-6 w-6 ${
-                        campaigns.length > 0 ? 'text-green-400' : 'text-muted-foreground'
-                      }`} />
+                {userAchievements.map((achievement) => {
+                  const rarityColors = {
+                    common: 'green',
+                    rare: 'blue', 
+                    epic: 'purple',
+                    legendary: 'orange'
+                  };
+                  
+                  const color = rarityColors[achievement.rarity];
+                  
+                  return (
+                    <div
+                      key={achievement.id}
+                      className={`p-6 rounded-xl border transition-all ${
+                        achievement.earned
+                          ? `bg-${color}-500/10 border-${color}-500/30 shadow-lg`
+                          : 'bg-muted/20 border-border'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4 mb-3">
+                        <div className={`p-3 rounded-lg ${
+                          achievement.earned ? `bg-${color}-500/20` : 'bg-muted/20'
+                        }`}>
+                          <div className={`h-6 w-6 ${
+                            achievement.earned ? `text-${color}-400` : 'text-muted-foreground'
+                          }`}>
+                            {achievement.icon}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="font-semibold text-foreground">{achievement.name}</div>
+                          <div className="text-sm text-muted-foreground">{achievement.description}</div>
+                        </div>
+                      </div>
+                      {achievement.earned ? (
+                        <Badge variant="secondary" className="w-full justify-center">
+                          Unlocked! {achievement.id === 'first-campaign' ? '🎉' : 
+                                   achievement.id === 'campaign-success' ? '🏆' : 
+                                   achievement.id === 'fundraising-hero' ? '💰' : '⭐'}
+                        </Badge>
+                      ) : (
+                        <div className="text-xs text-muted-foreground text-center p-2 bg-muted/10 rounded">
+                          Locked
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <div className="font-semibold text-foreground">First Campaign</div>
-                      <div className="text-sm text-muted-foreground">Create your first campaign</div>
-                    </div>
-                  </div>
-                  {campaigns.length > 0 && (
-                    <Badge variant="secondary" className="w-full justify-center">
-                      Unlocked! 🎉
-                    </Badge>
-                  )}
-                </div>
-
-                <div className={`p-6 rounded-xl border transition-all ${
-                  successfulCampaigns.length > 0 
-                    ? 'bg-blue-500/10 border-blue-500/30 shadow-lg' 
-                    : 'bg-muted/20 border-border'
-                }`}>
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className={`p-3 rounded-lg ${
-                      successfulCampaigns.length > 0 ? 'bg-blue-500/20' : 'bg-muted/20'
-                    }`}>
-                      <TrophyIcon className={`h-6 w-6 ${
-                        successfulCampaigns.length > 0 ? 'text-blue-400' : 'text-muted-foreground'
-                      }`} />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Successful Campaign</div>
-                      <div className="text-sm text-muted-foreground">Reach 100% funding</div>
-                    </div>
-                  </div>
-                  {successfulCampaigns.length > 0 && (
-                    <Badge variant="secondary" className="w-full justify-center">
-                      Unlocked! 🏆
-                    </Badge>
-                  )}
-                </div>
-
-                <div className={`p-6 rounded-xl border transition-all ${
-                  totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL 
-                    ? 'bg-purple-500/10 border-purple-500/30 shadow-lg' 
-                    : 'bg-muted/20 border-border'
-                }`}>
-                  <div className="flex items-center gap-4 mb-3">
-                    <div className={`p-3 rounded-lg ${
-                      totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL ? 'bg-purple-500/20' : 'bg-muted/20'
-                    }`}>
-                      <CurrencyDollarIcon className={`h-6 w-6 ${
-                        totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL ? 'text-purple-400' : 'text-muted-foreground'
-                      }`} />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-foreground">Fundraiser</div>
-                      <div className="text-sm text-muted-foreground">Raise 10+ SOL</div>
-                    </div>
-                  </div>
-                  {totalRaised.toNumber() >= 10 * LAMPORTS_PER_SOL && (
-                    <Badge variant="secondary" className="w-full justify-center">
-                      Unlocked! 💰
-                    </Badge>
-                  )}
-                </div>
+                  );
+                })}
               </div>
             </AnimatedCard>
 

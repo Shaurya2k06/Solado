@@ -4,18 +4,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { useProgramContext } from '../contexts/ProgramContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useAchievements, getUserAchievements } from '../contexts/AchievementContext';
 import { AnimatedCard } from './ui/animated-card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import {
   UserIcon,
   DocumentDuplicateIcon,
-  XMarkIcon,
-  StarIcon,
-  TrophyIcon,
-  HeartIcon,
-  SparklesIcon,
-  CheckCircleIcon
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 
 interface UserProfileModalProps {
@@ -49,6 +45,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const UserProfileModal = ({ userAddress, children, className = '' }: UserProfileModalProps) => {
   const { program } = useProgramContext();
   const { showSuccess, showError } = useNotifications();
+  const { checkAndShowAchievements } = useAchievements();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userStats, setUserStats] = useState<UserStats>({
@@ -62,50 +59,6 @@ const UserProfileModal = ({ userAddress, children, className = '' }: UserProfile
   const [userBadges, setUserBadges] = useState<UserBadge[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Define available badges
-  const availableBadges: UserBadge[] = [
-    {
-      id: 'first-campaign',
-      name: 'Campaign Creator',
-      description: 'Created their first campaign',
-      icon: <SparklesIcon className="h-4 w-4" />,
-      earned: false,
-      rarity: 'common'
-    },
-    {
-      id: 'fundraising-hero',
-      name: 'Fundraising Hero',
-      description: 'Raised over 10 SOL',
-      icon: <TrophyIcon className="h-4 w-4" />,
-      earned: false,
-      rarity: 'rare'
-    },
-    {
-      id: 'generous-donor',
-      name: 'Generous Donor',
-      description: 'Donated over 5 SOL total',
-      icon: <HeartIcon className="h-4 w-4" />,
-      earned: false,
-      rarity: 'rare'
-    },
-    {
-      id: 'campaign-success',
-      name: 'Success Story',
-      description: 'Completed a successful campaign',
-      icon: <CheckCircleIcon className="h-4 w-4" />,
-      earned: false,
-      rarity: 'common'
-    },
-    {
-      id: 'community-supporter',
-      name: 'Community Supporter',
-      description: 'Supported 10+ campaigns',
-      icon: <StarIcon className="h-4 w-4" />,
-      earned: false,
-      rarity: 'epic'
-    }
-  ];
 
   const openModal = () => {
     setIsModalOpen(true);
@@ -176,33 +129,14 @@ const UserProfileModal = ({ userAddress, children, className = '' }: UserProfile
         campaignsSupported
       };
 
-      // Calculate badges
-      const badges = availableBadges.map(badge => {
-        let earned = false;
-        
-        switch (badge.id) {
-          case 'first-campaign':
-            earned = stats.totalCampaigns > 0;
-            break;
-          case 'fundraising-hero':
-            earned = stats.totalRaised >= 10;
-            break;
-          case 'generous-donor':
-            earned = stats.totalDonated >= 5;
-            break;
-          case 'campaign-success':
-            earned = stats.completedCampaigns > 0;
-            break;
-          case 'community-supporter':
-            earned = stats.campaignsSupported >= 10;
-            break;
-        }
-
-        return { ...badge, earned };
-      });
-
+      // Get badges using the centralized system
+      const badges = getUserAchievements(userAddress, stats);
+      
       setUserStats(stats);
       setUserBadges(badges);
+
+      // Check and show any new achievements
+      await checkAndShowAchievements(userAddress, stats);
 
       // Cache the results
       userCache.set(userAddress, {
@@ -356,7 +290,7 @@ const UserProfileModal = ({ userAddress, children, className = '' }: UserProfile
                       {/* Badges Section */}
                       <div>
                         <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                          <TrophyIcon className="h-4 w-4 text-primary" />
+                          🏆
                           Achievements
                         </h4>
                         <div className="grid grid-cols-1 gap-2">

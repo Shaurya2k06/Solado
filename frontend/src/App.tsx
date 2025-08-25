@@ -4,6 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletContextProvider } from './contexts/WalletContextProvider';
 import { ProgramProvider } from './contexts/ProgramContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { AchievementProvider } from './contexts/AchievementContext';
 import { NotificationContainer } from './components/NotificationContainer';
 import { LandingPage } from './components/LandingPage';
 import { Dashboard } from './components/Dashboard';
@@ -63,9 +64,11 @@ function App() {
   return (
     <WalletContextProvider>
       <NotificationProvider>
-        <Router>
-          <AppContent />
-        </Router>
+        <AchievementProvider>
+          <Router>
+            <AppContent />
+          </Router>
+        </AchievementProvider>
       </NotificationProvider>
     </WalletContextProvider>
   );
